@@ -1,10 +1,43 @@
 # SelfScale-RL
 
-Sistema autoadaptativo que ajusta o **número de réplicas do `frontend`** da
-[Online Boutique](https://github.com/GoogleCloudPlatform/microservices-demo)
-em um cluster **kind** local. Um laço **MAPE-K** em Go, rodando no host, mantém a
-latência **p95 ≤ 200 ms** com o **mínimo de réplicas (1–5)** e **sem oscilar**.
-A decisão é tomada por um agente **Q-Learning tabular**.
+Aplicações em microsserviços enfrentam um dilema constante: com poucas réplicas,
+a latência dispara nos picos de acesso; com réplicas demais, paga-se por recursos
+ociosos. O autoscaler padrão do Kubernetes (HPA) resolve parte disso olhando
+apenas para o uso de CPU, por meio de um limiar fixo, sem saber se o usuário está
+de fato sendo bem atendido e sem aprender com o comportamento da aplicação.
+
+O SelfScale-RL investiga outra abordagem: um sistema autoadaptativo que ajusta
+sozinho o **número de réplicas do `frontend`** da
+[Online Boutique](https://github.com/GoogleCloudPlatform/microservices-demo),
+uma loja virtual de referência com 11 microsserviços, orientado diretamente pela
+experiência do cliente. A meta é manter a **latência p95 em até 200 ms** usando o
+**menor número possível de réplicas (de 1 a 5)**, **sem oscilar** entre aumentar e
+reduzir, e voltar ao normal em cerca de um minuto depois de um pico.
+
+O gerenciador segue o modelo **MAPE-K** (Monitor, Analisar, Planejar, Executar
+sobre uma Base de Conhecimento), referência clássica em sistemas autoadaptativos
+por separar com clareza observação, decisão e ação. A cada 15 segundos ele mede a
+latência real vista pelos clientes, por meio de um proxy instrumentado na frente
+da loja, e decide se deve aumentar, manter ou reduzir réplicas.
+
+A decisão é tomada por um agente de **aprendizado por reforço (Q-Learning
+tabular)**. Em vez de regras fixas escritas à mão, o agente aprende, pela
+recompensa de cada ação, qual equilíbrio entre latência, custo e estabilidade
+funciona melhor para essa aplicação. A tabela é pequena (15 estados × 4 ações),
+o que mantém o comportamento inspecionável e dispensa bibliotecas de ML. Como
+aprender só no cluster seria lento, o agente é pré-treinado em minutos num
+**simulador** baseado em teoria de filas, calibrado com medições reais, e depois
+refinado no ambiente de verdade. Por segurança, a decisão do agente nunca vai
+direto para o cluster: um planejador aplica limites, reduz uma réplica por vez,
+respeita um tempo de espera após cada aumento e desfaz a mudança se os novos pods
+não ficarem prontos.
+
+Todo o ambiente roda localmente e é reproduzível: o cluster **kind** e os
+serviços são criados com **Terraform**, a carga de usuários é gerada com
+**Locust** em cenários padronizados (degrau, rampa, picos súbitos, onda) e os
+resultados são comparados com réplicas fixas e com o HPA por meio de testes
+estatísticos. O código da loja não é alterado; o gerenciador apenas observa e
+escala o `Deployment` pela API do Kubernetes.
 
 ## Arquitetura
 
