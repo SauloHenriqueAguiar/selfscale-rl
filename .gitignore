@@ -1,0 +1,17 @@
+guia/
+
+# saídas dos experimentos e binários
+data/
+bin/
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl.bak
+crash.log
+
+# Python
+__pycache__/
+.venv/
+.pytest_cache/

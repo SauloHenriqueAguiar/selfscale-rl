@@ -1,0 +1,5 @@
+# Manifesto oficial da Online Boutique, com tag fixada (v0.10.2), sem alterações.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - kubernetes-manifests.yaml
