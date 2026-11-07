@@ -18,7 +18,7 @@ TF_PLATFORM := infra/terraform/platform
 BIN         := bin
 
 .DEFAULT_GOAL := help
-.PHONY: venv help build fmt lint test test-integration pytest tf-check check \
+.PHONY: venv help build fmt lint test cover test-integration pytest tf-check check \
         cluster-up probe-image deploy hpa-on hpa-off cluster-down \
         run simulate calibrate load pilot matrix report
 
@@ -35,21 +35,30 @@ build: ## Compila cmd/* em bin/
 	go build -o $(BIN)/ ./cmd/...
 
 fmt: ## Formata o código Go
-	gofmt -w cmd internal
+	gofmt -w cmd manager simulator
 
 lint: ## go vet + golangci-lint (se instalado)
 	go vet ./...
 	@if command -v golangci-lint >/dev/null; then golangci-lint run ./...; \
 	else echo "aviso: golangci-lint não instalado; rodando só go vet"; fi
 
-test: ## Testes Go com race e cobertura
-	go test -race -cover ./...
+# Os testes ficam em testes/, separados do código: -coverpkg mede a cobertura
+# dos pacotes testados (e não dos pacotes de teste).
+COVERPKG := ./manager/...,./simulator/...
 
-test-integration: ## Testes contra o cluster kind (build tag integration)
-	go test -race -tags=integration -count=1 ./...
+test: ## Testes unitários Go (testes/unitarios) com race e cobertura
+	@mkdir -p data
+	go test -race -coverpkg=$(COVERPKG) -coverprofile=data/coverage.out ./...
+	@go tool cover -func=data/coverage.out | tail -1
 
-pytest: ## Testes Python (análise e formas de carga)
-	python3 -m pytest -q analysis experiments/locust
+cover: test ## Cobertura por função (abre o relatório HTML em data/coverage.html)
+	go tool cover -html=data/coverage.out -o data/coverage.html
+
+test-integration: ## Testes contra o cluster kind (testes/integracao)
+	go test -race -tags=integration -count=1 ./testes/integracao/...
+
+pytest: ## Testes Python (testes/unitarios/analysis e locust)
+	python3 -m pytest -q
 
 tf-check: ## terraform fmt -check + validate nas duas stacks
 	terraform fmt -check -recursive infra
@@ -57,7 +66,7 @@ tf-check: ## terraform fmt -check + validate nas duas stacks
 	terraform -chdir=$(TF_PLATFORM) init -backend=false -input=false >/dev/null && terraform -chdir=$(TF_PLATFORM) validate
 
 check: ## fmt (verificação) + lint + test + tf-check + pytest
-	@test -z "$$(gofmt -l cmd internal)" || (gofmt -l cmd internal; echo "rode make fmt"; exit 1)
+	@test -z "$$(gofmt -l cmd manager simulator)" || (gofmt -l cmd manager simulator; echo "rode make fmt"; exit 1)
 	$(MAKE) lint test tf-check pytest
 
 # ---------------------------------------------------------------- infraestrutura

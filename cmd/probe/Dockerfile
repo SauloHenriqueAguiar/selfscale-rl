@@ -3,7 +3,7 @@ FROM golang:1.23-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
-COPY internal/probe ./internal/probe
+COPY manager/sensors/probe ./manager/sensors/probe
 COPY cmd/probe ./cmd/probe
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /probe ./cmd/probe
 

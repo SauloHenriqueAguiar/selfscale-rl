@@ -20,10 +20,9 @@ A decisão é tomada por um agente **Q-Learning tabular**.
 
 ### Onde está cada componente
 
-O repositório separa o **sistema gerenciado** (a loja) do **sistema gerenciador**
-(o laço MAPE-K). Dentro do gerenciador, cada etapa tem sua pasta, tanto nos casos
-de uso (`internal/mapek/<etapa>`) quanto nas regras puras (`internal/domain/<etapa>`,
-quando a etapa tem regras de negócio).
+A organização segue o vocabulário de sistemas autoadaptativos: o **sistema
+gerenciado** (a loja) fica separado do **sistema gerenciador** (o laço MAPE-K),
+que observa a loja por **sensores** e atua sobre ela por **efetuadores**.
 
 ```
 selfscale-rl/
@@ -32,40 +31,42 @@ selfscale-rl/
 │   ├── boutique/overlay/            ajustes kustomize (sem loadgenerator, 1 réplica)
 │   └── hpa/                         baseline E3 (HPA por CPU)
 │
-├── internal/                        SISTEMA GERENCIADOR
-│   ├── mapek/                       casos de uso — uma pasta por etapa
-│   │   ├── monitor/      [M]        ports.go (sensores) · filters.go (Pipes and Filters) · monitor.go
-│   │   ├── analyzer/     [A]        ports.go (Decider, Learner) · analyzer.go
-│   │   ├── planner/      [P]        planner.go
-│   │   ├── executor/     [E]        ports.go (efetuadores) · steps.go (Command) · executor.go
-│   │   ├── knowledge/    [K]        knowledge.go (memória + histórico) · checkpoint.go (Q-table)
+├── manager/                         SISTEMA GERENCIADOR
+│   ├── mapek/                       uma pasta por etapa do MAPE-K
+│   │   ├── monitor/      [M]        monitor.go · filters.go (Pipes and Filters) · ports.go (sensores)
+│   │   ├── analyzer/     [A]        analyzer.go · state.go · reward.go · ports.go (agente)
+│   │   ├── planner/      [P]        planner.go · rules.go (limites, redução 1 a 1, cooldown, pendência)
+│   │   ├── executor/     [E]        executor.go · steps.go (Command) · ports.go (efetuadores)
+│   │   ├── knowledge/    [K]        messages.go · state.go · settings.go · knowledge.go · checkpoint.go
 │   │   ├── loop.go                  liga M→A→P→E por goroutines e canais (chMA, chAP, chPE)
 │   │   └── mode.go                  modos observe | finetune | eval | online
-│   │
-│   ├── domain/                      regras puras (só biblioteca padrão)
-│   │   ├── messages.go · state.go · settings.go   contratos entre as etapas
-│   │   ├── analysis/     [A]        classify.go (estado, sintoma) · reward.go · qlearning/
-│   │   └── planning/     [P]        plan.go (limites, redução 1 a 1, cooldown, pendência)
-│   │
-│   ├── adapters/                    I/O: implementam as portas das etapas
-│   │   ├── prometheus/   [M]        sensor de tráfego (p95, vazão, erros)
-│   │   ├── kube/         [M][E]     sensors.go · effector.go · hpa_guard.go
-│   │   ├── storage/      [K]        Q-table (JSON) e histórico (CSV)
-│   │   └── config/       [K]        configs/config.yaml → metas e políticas
-│   │
-│   ├── probe/                       sensor de latência implantado junto da loja
-│   └── simulator/                   implementa as mesmas portas para o pré-treino
+│   ├── learning/qlearning/          agente Q-Learning (Q-table, máscara, ε-greedy)
+│   ├── sensors/                     o que o Monitor observa
+│   │   ├── prometheus/              p95, vazão e erros
+│   │   ├── kube/                    réplicas e CPU dos pods
+│   │   └── probe/                   proxy de medição implantado na frente do frontend
+│   ├── effectors/                   o que o Executor aciona
+│   │   └── kube/                    escala o Deployment e impede atuar junto com o HPA
+│   └── storage/                     config.yaml, Q-table (JSON) e histórico (CSV)
 │
-├── cmd/                             composition roots: selfscale · probe · simulate
+├── simulator/                       as mesmas portas sobre um modelo de filas (pré-treino)
+├── testes/                          todos os testes do projeto
+│   ├── unitarios/                   espelha manager/ e simulator/ (Go) + analysis e locust (Python)
+│   ├── integracao/                  contra o cluster kind (build tag integration)
+│   └── fakes/                       dublês das portas, escritos à mão
+├── cmd/                             executáveis: selfscale · probe · simulate
 ├── infra/terraform/                 cluster kind + plataforma (boutique, monitoring, probe, hpa)
 ├── experiments/                     Locust (cenários C0–C5) e scripts (piloto, matriz)
 └── analysis/                        métricas, tabela, gráficos, Mann-Whitney
 ```
 
-Regra de dependência: `cmd` → `adapters`/`simulator` → `mapek/<etapa>` → `domain`.
-As etapas não se conhecem entre si: só trocam mensagens (`domain/messages.go`) e
-compartilham a Base de Conhecimento. O mesmo Analisador, Planejador e Agente rodam
-no cluster e no simulador; só os adaptadores mudam.
+Cada etapa declara em `ports.go` as interfaces de que precisa; sensores,
+efetuadores, armazenamento e simulador as implementam. As etapas não se
+conhecem entre si: só trocam as mensagens de `knowledge/messages.go` e
+compartilham a Base de Conhecimento. As regras de decisão (`state.go`,
+`reward.go`, `rules.go`, `qlearning/`) não fazem I/O e são testadas sem
+cluster. O mesmo Analisador, Planejador e agente rodam no cluster e no
+simulador; só os sensores e efetuadores mudam.
 
 ## Pré-requisitos
 
@@ -159,9 +160,15 @@ O gerenciador se recusa a atuar se houver HPA no `frontend` (`make hpa-off`).
 
 ## Qualidade
 
+Todos os testes ficam em `testes/`, separados do código de produção. Eles usam
+apenas a API pública de cada pacote (pacotes `<nome>_test`).
+
 ```bash
-make check              # gofmt + lint + go test -race -cover + terraform validate + pytest
-make test-integration   # testes contra o cluster (build tag integration)
+make check              # gofmt + lint + testes unitários Go + terraform validate + pytest
+make test               # testes unitários Go com -race e cobertura (data/coverage.out)
+make cover              # relatório de cobertura em HTML (data/coverage.html)
+make pytest             # testes Python (pytest.ini aponta para testes/)
+make test-integration   # testes contra o cluster kind (exige make cluster-up && make deploy)
 ```
 
 ## Configuração

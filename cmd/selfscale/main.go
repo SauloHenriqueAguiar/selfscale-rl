@@ -19,17 +19,17 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	metricsclient "k8s.io/metrics/pkg/client/clientset/versioned"
 
-	"github.com/shna/selfscale-rl/internal/adapters/config"
-	"github.com/shna/selfscale-rl/internal/adapters/kube"
-	"github.com/shna/selfscale-rl/internal/adapters/prometheus"
-	"github.com/shna/selfscale-rl/internal/adapters/storage"
-	"github.com/shna/selfscale-rl/internal/domain/analysis/qlearning"
-	"github.com/shna/selfscale-rl/internal/mapek"
-	"github.com/shna/selfscale-rl/internal/mapek/analyzer"
-	"github.com/shna/selfscale-rl/internal/mapek/executor"
-	"github.com/shna/selfscale-rl/internal/mapek/knowledge"
-	"github.com/shna/selfscale-rl/internal/mapek/monitor"
-	"github.com/shna/selfscale-rl/internal/mapek/planner"
+	effectors "github.com/shna/selfscale-rl/manager/effectors/kube"
+	"github.com/shna/selfscale-rl/manager/learning/qlearning"
+	"github.com/shna/selfscale-rl/manager/mapek"
+	"github.com/shna/selfscale-rl/manager/mapek/analyzer"
+	"github.com/shna/selfscale-rl/manager/mapek/executor"
+	"github.com/shna/selfscale-rl/manager/mapek/knowledge"
+	"github.com/shna/selfscale-rl/manager/mapek/monitor"
+	"github.com/shna/selfscale-rl/manager/mapek/planner"
+	sensors "github.com/shna/selfscale-rl/manager/sensors/kube"
+	"github.com/shna/selfscale-rl/manager/sensors/prometheus"
+	"github.com/shna/selfscale-rl/manager/storage"
 )
 
 // Intervalo de consulta da prontidão das réplicas pelo Executor.
@@ -49,7 +49,7 @@ func main() {
 }
 
 func run(cfgPath, modeName, scenario, historyPath string) error {
-	cfg, err := config.Load(cfgPath)
+	cfg, err := storage.LoadConfig(cfgPath)
 	if err != nil {
 		return err
 	}
@@ -57,14 +57,14 @@ func run(cfgPath, modeName, scenario, historyPath string) error {
 	if err != nil {
 		return err
 	}
-	dep, err := newDeployment(cfg)
+	kube, err := newKubeTouchpoints(cfg)
 	if err != nil {
 		return err
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if err := ensureNoHPA(ctx, dep, mode); err != nil {
+	if err := ensureNoHPA(ctx, kube.effector, mode); err != nil {
 		return err
 	}
 	agent, store, err := newAgent(cfg, mode)
@@ -77,7 +77,7 @@ func run(cfgPath, modeName, scenario, historyPath string) error {
 	}
 	defer hist.Close()
 
-	loop := buildLoop(cfg, mode, dep, agent, store, hist)
+	loop := buildLoop(cfg, mode, kube, agent, store, hist)
 	slog.Info("iniciando laço MAPE-K", "mode", modeName, "scenario", scenario, "period", cfg.Sensors.Period)
 	loop.Run(ctx, cfg.Sensors.Period)
 
@@ -87,31 +87,41 @@ func run(cfgPath, modeName, scenario, historyPath string) error {
 	return nil
 }
 
-func newDeployment(cfg config.Config) (*kube.Deployment, error) {
+// kubeTouchpoints são os pontos de contato com o Kubernetes: o sensor lê o
+// Deployment gerenciado e o efetuador o escala.
+type kubeTouchpoints struct {
+	sensor   *sensors.Sensor
+	effector *effectors.Effector
+}
+
+func newKubeTouchpoints(cfg storage.Config) (kubeTouchpoints, error) {
 	rules := clientcmd.NewDefaultClientConfigLoadingRules()
 	overrides := &clientcmd.ConfigOverrides{CurrentContext: cfg.Target.KubeconfigContext}
 	restCfg, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(rules, overrides).ClientConfig()
 	if err != nil {
-		return nil, fmt.Errorf("carregando kubeconfig: %w", err)
+		return kubeTouchpoints{}, fmt.Errorf("carregando kubeconfig: %w", err)
 	}
 	client, err := kubernetes.NewForConfig(restCfg)
 	if err != nil {
-		return nil, fmt.Errorf("criando cliente kubernetes: %w", err)
+		return kubeTouchpoints{}, fmt.Errorf("criando cliente kubernetes: %w", err)
 	}
 	metrics, err := metricsclient.NewForConfig(restCfg)
 	if err != nil {
-		return nil, fmt.Errorf("criando cliente de métricas: %w", err)
+		return kubeTouchpoints{}, fmt.Errorf("criando cliente de métricas: %w", err)
 	}
 	t := cfg.Target
-	return kube.NewDeployment(client, metrics, t.Namespace, t.Deployment, t.PodSelector), nil
+	return kubeTouchpoints{
+		sensor:   sensors.NewSensor(client, metrics, t.Namespace, t.Deployment, t.PodSelector),
+		effector: effectors.NewEffector(client, t.Namespace, t.Deployment),
+	}, nil
 }
 
 // ensureNoHPA impede que HPA e SelfScale-RL atuem no mesmo Deployment.
-func ensureNoHPA(ctx context.Context, dep *kube.Deployment, mode mapek.Mode) error {
+func ensureNoHPA(ctx context.Context, effector *effectors.Effector, mode mapek.Mode) error {
 	if !mode.Act {
 		return nil
 	}
-	has, err := dep.HasHPA(ctx)
+	has, err := effector.HasHPA(ctx)
 	if err != nil {
 		return err
 	}
@@ -122,7 +132,7 @@ func ensureNoHPA(ctx context.Context, dep *kube.Deployment, mode mapek.Mode) err
 }
 
 // newAgent cria o agente com a estratégia de seleção do modo e carrega a Q-table salva.
-func newAgent(cfg config.Config, mode mapek.Mode) (*qlearning.Agent, storage.JSONQTable, error) {
+func newAgent(cfg storage.Config, mode mapek.Mode) (*qlearning.Agent, storage.JSONQTable, error) {
 	s, l := cfg.Settings(), cfg.Learning
 	var sel qlearning.ActionSelector = qlearning.Greedy{}
 	switch {
@@ -147,7 +157,7 @@ func newAgent(cfg config.Config, mode mapek.Mode) (*qlearning.Agent, storage.JSO
 	}
 }
 
-func historyFile(cfg config.Config, override, mode, scenario string) string {
+func historyFile(cfg storage.Config, override, mode, scenario string) string {
 	if override != "" {
 		return override
 	}
@@ -155,7 +165,7 @@ func historyFile(cfg config.Config, override, mode, scenario string) string {
 	return filepath.Join(cfg.Run.HistoryDir, name)
 }
 
-func buildLoop(cfg config.Config, mode mapek.Mode, dep *kube.Deployment, agent *qlearning.Agent,
+func buildLoop(cfg storage.Config, mode mapek.Mode, kube kubeTouchpoints, agent *qlearning.Agent,
 	store storage.JSONQTable, hist knowledge.HistoryWriter) *mapek.Loop {
 	s := cfg.Settings()
 	k := knowledge.New(hist)
@@ -165,9 +175,9 @@ func buildLoop(cfg config.Config, mode mapek.Mode, dep *kube.Deployment, agent *
 		Target: cfg.TargetName(), Allowlist: cfg.Target.Allowlist, PollInterval: readinessPoll, Async: true,
 	}
 	return &mapek.Loop{
-		Monitor:  monitor.New(traffic, dep, dep, monitor.DefaultProcessors()),
+		Monitor:  monitor.New(traffic, kube.sensor, kube.sensor, monitor.DefaultProcessors()),
 		Analyzer: analyzer.New(agent, agent, knowledge.Checkpointer{Agent: agent, Store: store}, k, s, analyzerOpts),
 		Planner:  planner.New(k, s.Policy),
-		Executor: executor.New(dep, dep, k, execOpts),
+		Executor: executor.New(kube.effector, kube.sensor, k, execOpts),
 	}
 }
