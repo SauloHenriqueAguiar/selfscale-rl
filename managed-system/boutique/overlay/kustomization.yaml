@@ -1,0 +1,34 @@
+# Ajustes do SelfScale-RL sobre a loja (sem alterar imagens nem código):
+# remove o gerador de carga interno e o LoadBalancer, fixa 1 réplica em tudo.
+# Os recursos de CPU vêm de variáveis do Terraform (módulo boutique).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: boutique
+resources:
+  - namespace.yaml
+  - ../base
+patches:
+  - patch: |-
+      $patch: delete
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: loadgenerator
+  - patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: ServiceAccount
+      metadata:
+        name: loadgenerator
+  - patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: frontend-external
+  - target:
+      kind: Deployment
+    patch: |-
+      - op: add
+        path: /spec/replicas
+        value: 1

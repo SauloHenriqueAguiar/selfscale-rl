@@ -1,0 +1,31 @@
+# Linters do projeto (formato do golangci-lint v1.x).
+# O misspell ficou de fora: ele só conhece inglês e acusa os comentários em português.
+run:
+  timeout: 5m
+
+linters:
+  disable-all: true
+  enable:
+    - govet
+    - staticcheck
+    - errcheck
+    - ineffassign
+    - revive
+    - gocyclo
+    - gofmt
+    - goimports
+    - unparam
+
+linters-settings:
+  gocyclo:
+    min-complexity: 10
+  goimports:
+    local-prefixes: github.com/shna/selfscale-rl
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  exclude-rules:
+    # Testes de tabela acumulam asserções; a complexidade vale para o código de produção.
+    - path: _test\.go
+      linters: [gocyclo]

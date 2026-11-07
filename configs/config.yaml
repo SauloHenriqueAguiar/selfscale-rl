@@ -1,0 +1,49 @@
+# Configuração do SelfScale-RL (Base de Conhecimento: metas e políticas do operador).
+# Valores marcados com "calibrar" devem ser revistos após o piloto (make pilot).
+
+target:
+  kubeconfig_context: kind-selfscale
+  namespace: boutique
+  deployment: frontend
+  pod_selector: app=frontend
+  allowlist: ["boutique/frontend"]
+
+sensors:
+  prometheus_url: http://localhost:9090
+  period: 15s
+
+goals:
+  sla_p95_ms: 200
+
+state:
+  low_ratio: 0.5         # LOW < 0.5·SLA
+  risk_ratio: 0.8        # risk a partir de 0.8·SLA
+
+policy:
+  min_replicas: 1
+  max_replicas: 5
+  scale_down_max_step: 1
+  scale_down_cooldown_cycles: 2
+  readiness_timeout: 60s
+
+reward:
+  sla_ok: 1.0
+  sla_violation: -2.0
+  cost_per_replica: 0.1
+  oscillation_penalty: 0.5
+
+learning:
+  alpha: 0.1
+  gamma: 0.9
+  epsilon_start: 1.0     # pré-treino no simulador
+  epsilon_finetune: 0.2  # ajuste fino e modo online no cluster
+  epsilon_eval: 0.05     # avaliação (fixo)
+  epsilon_min: 0.05
+  epsilon_decay: 0.995   # por episódio
+  prior_init: true
+  qtable_path: data/qtable.json
+  seed: 42
+
+run:
+  history_dir: data/
+  episode_cycles: 40     # 40 × 15 s = 10 min
