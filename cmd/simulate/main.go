@@ -14,11 +14,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/shna/selfscale-rl/internal/adapters/config"
-	"github.com/shna/selfscale-rl/internal/adapters/storage"
-	"github.com/shna/selfscale-rl/internal/domain"
-	"github.com/shna/selfscale-rl/internal/domain/analysis/qlearning"
-	"github.com/shna/selfscale-rl/internal/simulator"
+	"github.com/shna/selfscale-rl/manager/learning/qlearning"
+	"github.com/shna/selfscale-rl/manager/mapek/knowledge"
+	"github.com/shna/selfscale-rl/manager/storage"
+	"github.com/shna/selfscale-rl/simulator"
 )
 
 // Critério de convergência: janela de episódios e variação relativa máxima da recompensa.
@@ -83,7 +82,7 @@ func train(args []string) error {
 	episodes := fs.Int("episodes", 2000, "máximo de episódios")
 	_ = fs.Parse(args)
 
-	cfg, err := config.Load(*cfgPath)
+	cfg, err := storage.LoadConfig(*cfgPath)
 	if err != nil {
 		return err
 	}
@@ -105,7 +104,7 @@ func train(args []string) error {
 	return writeCurve(*curve, stats)
 }
 
-func newTrainingAgent(s domain.Settings) *qlearning.Agent {
+func newTrainingAgent(s knowledge.Settings) *qlearning.Agent {
 	l := s.Learning
 	sel := qlearning.NewEpsilonGreedy(l.EpsilonStart, l.EpsilonMin, l.EpsilonDecay, l.Seed)
 	return qlearning.NewAgent(s.Policy, l, sel)
@@ -125,15 +124,15 @@ func loadModel(path string) (simulator.Model, error) {
 }
 
 // report imprime o resumo do treino e a política gulosa (estado → ação).
-func report(stats []simulator.EpisodeStats, agent *qlearning.Agent, p domain.Policy) {
+func report(stats []simulator.EpisodeStats, agent *qlearning.Agent, p knowledge.Policy) {
 	converged := simulator.Converged(stats, convergenceWindow, convergenceTolerance)
 	last := stats[len(stats)-1]
 	fmt.Printf("episódios=%d convergiu=%v recompensa_média_final=%.3f ε=%.3f\n", len(stats), converged, last.MeanReward, last.Epsilon)
 	fmt.Println("política gulosa (réplicas 1..5):")
-	for band := domain.BandLow; band <= domain.BandHigh; band++ {
+	for band := knowledge.BandLow; band <= knowledge.BandHigh; band++ {
 		fmt.Printf("  %-4s", band)
 		for r := p.MinReplicas; r <= p.MaxReplicas; r++ {
-			fmt.Printf(" %+d", agent.Best(domain.State{Band: band, Replicas: r}))
+			fmt.Printf(" %+d", agent.Best(knowledge.State{Band: band, Replicas: r}))
 		}
 		fmt.Println()
 	}

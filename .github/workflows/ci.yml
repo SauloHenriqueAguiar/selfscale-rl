@@ -16,7 +16,7 @@ jobs:
       - uses: golangci/golangci-lint-action@v6
         with:
           version: v1.64.8
-      - run: go test -race -cover ./...
+      - run: go test -race -coverpkg=./manager/...,./simulator/... ./...
 
   terraform:
     runs-on: ubuntu-latest
@@ -37,4 +37,4 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install pandas scipy matplotlib pytest
-      - run: python -m pytest -q analysis experiments/locust/test_shapes.py
+      - run: python -m pytest -q

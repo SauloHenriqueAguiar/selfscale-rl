@@ -3,7 +3,7 @@
 Cada função recebe o tempo decorrido (s) e devolve o número de usuários, ou
 None quando o cenário terminou. Ficam separadas do Locust para serem testadas
 com pytest sem gerar carga. Os mesmos perfis existem no simulador Go
-(internal/simulator/scenarios.go), em ciclos de 15 s.
+(simulator/scenarios.go), em ciclos de 15 s.
 """
 
 import math

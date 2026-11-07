@@ -16,7 +16,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"github.com/shna/selfscale-rl/internal/probe"
+	"github.com/shna/selfscale-rl/manager/sensors/probe"
 )
 
 const shutdownGrace = 5 * time.Second

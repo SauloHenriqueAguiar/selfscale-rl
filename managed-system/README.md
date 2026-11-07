@@ -16,6 +16,6 @@ do Terraform (`frontend_cpu_*`, `deps_cpu_*`), para serem calibrados no piloto.
 Elemento adaptado: **`Deployment/frontend`** (réplicas 1–5). Os demais serviços
 ficam com 1 réplica fixa e CPU de sobra.
 
-Os **sensores** que observam a loja (proxy de medição `internal/probe`,
+Os **sensores** que observam a loja (proxy de medição `manager/sensors/probe`,
 metrics-server e Prometheus) pertencem ao sistema gerenciador e são implantados
 pelos módulos `probe` e `monitoring`.
