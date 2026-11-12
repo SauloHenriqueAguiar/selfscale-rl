@@ -77,8 +77,8 @@ func train(args []string) error {
 	cfgPath := fs.String("config", "configs/config.yaml", "arquivo de configuração")
 	modelPath := fs.String("model", "data/sim_model.json", "modelo calibrado (usa o padrão se não existir)")
 	curve := fs.String("curve", "data/sim_learning.csv", "curva de aprendizado")
-	base := fs.Float64("base", 5, "vazão base dos cenários (req/s) — calibrar no piloto")
-	peak := fs.Float64("peak", 50, "vazão de pico dos cenários (req/s) — calibrar no piloto")
+	base := fs.Float64("base", 7, "vazão base dos cenários (req/s): 10 usuários no piloto")
+	peak := fs.Float64("peak", 20, "vazão de pico dos cenários (req/s): 30 usuários no piloto")
 	episodes := fs.Int("episodes", 2000, "máximo de episódios")
 	_ = fs.Parse(args)
 

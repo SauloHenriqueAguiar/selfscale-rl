@@ -15,7 +15,7 @@ SCENARIOS=${SCENARIOS:-"C0 C1 C2 C3 C4"}
 REPS=${REPS:-5}
 STABILIZE_S=${STABILIZE_S:-60}
 BASE_USERS=${BASE_USERS:-10}
-PEAK_USERS=${PEAK_USERS:-100}
+PEAK_USERS=${PEAK_USERS:-30}
 
 prepare() { # deixa o cluster no estado inicial da estratégia
   case "$1" in
@@ -40,7 +40,7 @@ for strategy in $STRATEGIES; do
       manager=$!
       SCENARIO="$scenario" BASE_USERS="$BASE_USERS" PEAK_USERS="$PEAK_USERS" \
         locust -f experiments/locust/locustfile.py --headless --host http://localhost:8080 \
-        --csv "data/locust_$run" --only-summary >"data/locust_$run.log" 2>&1
+        --csv "data/locust_$run" --only-summary >"data/locust_$run.log" 2>&1 || true  # sai com 1 se houver qualquer falha
       kill -INT "$manager"; wait "$manager" || true
     done
   done

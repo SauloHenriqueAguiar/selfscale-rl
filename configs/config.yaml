@@ -1,5 +1,5 @@
 # Configuração do SelfScale-RL (Base de Conhecimento: metas e políticas do operador).
-# Valores marcados com "calibrar" devem ser revistos após o piloto (make pilot).
+# Intensidade dos cenários calibrada no piloto: BASE_USERS=10, PEAK_USERS=30 (ver README).
 
 target:
   kubeconfig_context: kind-selfscale
@@ -23,7 +23,7 @@ policy:
   min_replicas: 1
   max_replicas: 5
   scale_down_max_step: 1
-  scale_down_cooldown_cycles: 2
+  scale_down_cooldown_cycles: 4   # 1 min: evita oscilação causada pelo ruído do p95
   readiness_timeout: 60s
 
 reward:

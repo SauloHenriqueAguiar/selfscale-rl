@@ -87,7 +87,9 @@ selfscale-rl/
 │   ├── unitarios/                   espelha manager/ e simulator/ (Go) + analysis e locust (Python)
 │   ├── integracao/                  contra o cluster kind (build tag integration)
 │   └── fakes/                       dublês das portas, escritos à mão
-├── cmd/                             executáveis: selfscale · probe · simulate
+├── cmd/                             executáveis: selfscale · probe · simulate · explain
+├── scripts/selfscale.sh             acompanhar o laço ao vivo, gerar carga e injetar falhas
+├── tools/painel/                    painel web com latência, réplicas e decisões a cada ciclo
 ├── infra/terraform/                 cluster kind + plataforma (boutique, monitoring, probe, hpa)
 ├── experiments/                     Locust (cenários C0–C5) e scripts (piloto, matriz)
 └── analysis/                        métricas, tabela, gráficos, Mann-Whitney
@@ -183,13 +185,64 @@ make cluster-down               # destrói tudo
 
 Modos do gerenciador (`--mode`):
 
-| Modo | Decide | Atua | Aprende |
-|---|---|---|---|
-| `observe` | não (só classifica) | não | não |
-| `finetune` / `online` | sim (ε = `epsilon_finetune`) | sim | sim |
-| `eval` | sim (ε fixo = `epsilon_eval`) | sim | não |
+| Modo                      | Decide                           | Atua | Aprende |
+| ------------------------- | -------------------------------- | ---- | ------- |
+| `observe`               | não (só classifica)            | não | não    |
+| `finetune` / `online` | sim (ε = `epsilon_finetune`)  | sim  | sim     |
+| `eval`                  | sim (ε fixo = `epsilon_eval`) | sim  | não    |
 
 O gerenciador se recusa a atuar se houver HPA no `frontend` (`make hpa-off`).
+
+## Acompanhar o laço ao vivo
+
+`scripts/selfscale.sh` roda **um único laço MAPE-K** em segundo plano
+(`bin/explain`, as mesmas etapas do `bin/selfscale`) e explica, a cada ciclo,
+o que cada etapa recebeu, decidiu e executou. Cada etapa pode ser vista em um
+terminal; todos mostram o mesmo laço, e os números de ciclo coincidem. O laço
+**atua no cluster**, com um de dois modelos (2º argumento ou `MODELO=...`):
+
+| Modelo | Q-table | Aprende? |
+| --- | --- | --- |
+| `pretreinado` (padrão) | `data/qtable.json` (simulador + ajuste fino) | não: política gulosa, tabela intacta |
+| `zero` | zerada, sem conhecimento prévio | sim: ε-greedy a cada ciclo; salva em `data/qtable_zero.json` |
+
+```bash
+scripts/selfscale.sh monitor        # terminal 1: [M] o que foi medido e se o dado é válido
+scripts/selfscale.sh analisador     # terminal 2: [A] estado, recompensa, Q-values e decisão
+scripts/selfscale.sh planejador     # terminal 3: [P] plano seguro ou motivo do bloqueio
+scripts/selfscale.sh executor       # terminal 4: [E] o que foi aplicado no cluster
+scripts/selfscale.sh conhecimento   # terminal 5: [K] metas, Q-table e registros de cada ciclo
+scripts/selfscale.sh tudo           # ou todas as etapas juntas em um só terminal
+scripts/selfscale.sh tudo zero      # o mesmo, com o modelo não treinado (aprende durante o laço)
+
+scripts/selfscale.sh carga          # carga aleatória de 30 min para provocar a adaptação
+scripts/selfscale.sh carga-curta    # ou uma carga curta (~2 min, 10 → 30 usuários)
+scripts/selfscale.sh grafico        # painel em http://localhost:8090 (opcional)
+scripts/selfscale.sh falha-sensor   # derruba o Prometheus: o Monitor marca dado inválido
+scripts/selfscale.sh volta-sensor   # religa o Prometheus
+
+scripts/selfscale.sh parar          # para o laço e volta o frontend para 1 réplica
+```
+
+O primeiro comando de etapa inicia o laço com o modelo escolhido; os demais só
+se conectam a ele (para trocar de modelo, `parar` e iniciar de novo). `Ctrl+C`
+fecha apenas aquela tela. Com o modelo `zero`, o analisador mostra a cada ciclo
+se a ação veio da tabela ou de uma exploração aleatória e qual célula da
+Q-table mudou.
+
+A carga aleatória (`carga [MIN] [SEMENTE]`) sorteia trechos de 30 s a 4 min
+sem repetir o tipo em sequência: pausa, calma, constante, rampa, pico, onda,
+rajadas (alterna alto e baixo a cada 15–45 s, para testar se o laço não oscila)
+e sobrecarga (acima do pico, satura mesmo com 5 réplicas). O plano e a semente
+aparecem no início; a mesma semente repete o mesmo plano. `BASE_USERS` (10) e
+`PEAK_USERS` (40) ajustam os níveis, e cada trecho fica marcado no gráfico.
+Rodar os dois modelos com a mesma semente (`carga 30 <semente>`) mostra o ganho
+do pré-treino.
+
+Os logs ficam em `data/laco/` e o histórico em `data/history_laco.csv`. Os
+mesmos comandos existem no Makefile (`make laco ETAPA=tudo MODELO=zero`,
+`make carga-aleatoria MINUTOS=30 SEMENTE=123`, `make carga-curta`, `make painel`,
+`make laco-parar`), e `scripts/selfscale.sh` sem argumento lista todos.
 
 ## Qualidade
 
@@ -207,5 +260,26 @@ make test-integration   # testes contra o cluster kind (exige make cluster-up &&
 ## Configuração
 
 Metas, políticas, pesos da recompensa e hiperparâmetros ficam em
-`configs/config.yaml`. Valores marcados como "calibrar" (CPU do frontend,
-intensidade dos cenários) devem ser revistos após o piloto.
+`configs/config.yaml`.
+
+### Calibração (piloto)
+
+O piloto (`make pilot`) mede o p95 com 1 a 5 réplicas fixas do frontend
+(limite de 200m de CPU cada) sob 5 a 80 usuários constantes. Os históricos ficam em `data/pilot/`; o
+`data/pilot.csv` usado na calibração guarda só os pontos sem o frontend no
+limite de CPU:
+
+| Usuários | ≈ req/s | 1 réplica | 3 réplicas | 4 réplicas | 5 réplicas |
+| --------: | -------: | ---------: | ----------: | ----------: | ----------: |
+|        10 |        7 |     130 ms |       93 ms |      118 ms |       79 ms |
+|        30 |       20 |     293 ms |      143 ms |      107 ms |      188 ms |
+|        40 |       27 |     441 ms |      384 ms |      191 ms |      159 ms |
+
+Com SLA de 200 ms, os cenários usam `BASE_USERS=10` e `PEAK_USERS=30`: a carga
+base cabe em 1 réplica e o pico exige pelo menos 3. Um pico de 40 usuários
+também passaria no critério, mas deixa pouca folga com 5 réplicas (~160 ms) para
+o ruído do p95 em janelas de 15 s (cerca de 25% por ciclo), e no ajuste fino o
+agente passou a oscilar entre 4 e 5 réplicas. No pico as dependências ficam
+abaixo de 35% da CPU, então o gargalo é o frontend. Cada ponto do piloto é uma
+única execução de 150 s, daí irregularidades como 5 réplicas a 30 usuários. O
+simulador usa os valores equivalentes em vazão (`simulate train --base 7 --peak 20`).

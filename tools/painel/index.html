@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Adaptacao ao vivo</title>
+<style>
+:root {
+  color-scheme: light;
+  --surface-0: #f3f3f1;
+  --surface-1: #fcfcfb;
+  --border: #e2e1dc;
+  --grid: #ecebe7;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #7a7974;
+  --series-1: #2a78d6;
+  --series-1-soft: rgba(42, 120, 214, .12);
+  --good: #0ca30c;
+  --warning: #fab219;
+  --serious: #ec835a;
+  --critical: #d03b3b;
+  --neutral: #b9b8b2;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --surface-0: #111110;
+    --surface-1: #1a1a19;
+    --border: #2e2e2c;
+    --grid: #262624;
+    --text-primary: #f0efec;
+    --text-secondary: #c3c2b7;
+    --text-muted: #8e8d86;
+    --series-1: #3987e5;
+    --series-1-soft: rgba(57, 135, 229, .16);
+    --neutral: #5d5c57;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-0: #111110;
+  --surface-1: #1a1a19;
+  --border: #2e2e2c;
+  --grid: #262624;
+  --text-primary: #f0efec;
+  --text-secondary: #c3c2b7;
+  --text-muted: #8e8d86;
+  --series-1: #3987e5;
+  --series-1-soft: rgba(57, 135, 229, .16);
+  --neutral: #5d5c57;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--surface-0); color: var(--text-primary);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+.wrap { max-width: 1280px; margin: 0 auto; padding: 20px 16px 32px; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; margin-bottom: 14px; }
+h1 { font-size: 20px; margin: 0; font-weight: 650; }
+.sub { color: var(--text-secondary); font-size: 13px; }
+.live { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 12px; margin-left: auto; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); }
+.dot.off { background: var(--neutral); }
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; }
+.tile .k { color: var(--text-secondary); font-size: 12px; }
+.tile .v { font-size: 24px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.tile .n { color: var(--text-muted); font-size: 12px; }
+
+.grid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 14px; }
+@media (max-width: 980px) { .grid { grid-template-columns: 1fr; } }
+.card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.card h2 { font-size: 13px; margin: 0 0 2px; font-weight: 600; }
+.card .hint { color: var(--text-muted); font-size: 12px; margin: 0 0 4px; }
+.chart + .chart { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--grid); }
+svg { display: block; width: 100%; overflow: visible; }
+svg text { fill: var(--text-secondary); font-size: 11px; font-variant-numeric: tabular-nums; }
+
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--text-secondary); margin-top: 6px; }
+.legend span { display: inline-flex; align-items: center; gap: 5px; }
+.sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+
+.log { list-style: none; margin: 0; padding: 0; max-height: 690px; overflow-y: auto; }
+.log li { padding: 8px 2px; border-bottom: 1px solid var(--grid); font-size: 12.5px; }
+.log li:last-child { border-bottom: 0; }
+.log .h { display: flex; align-items: center; gap: 8px; color: var(--text-secondary); font-size: 12px; }
+.log .h b { color: var(--text-primary); }
+.log .flow { margin-top: 3px; color: var(--text-primary); }
+.log .flow i { font-style: normal; color: var(--text-muted); }
+.log li.ev { background: var(--series-1-soft); border-radius: 6px; padding-left: 8px; padding-right: 8px; }
+
+.pill { display: inline-flex; align-items: center; gap: 4px; border-radius: 999px; padding: 0 8px; font-size: 11.5px;
+  border: 1px solid var(--border); color: var(--text-primary); white-space: nowrap; }
+.pill .sw { width: 8px; height: 8px; border-radius: 50%; }
+
+.tip { position: fixed; pointer-events: none; z-index: 10; background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 10px; font-size: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.15); min-width: 220px; display: none; }
+.tip .t { font-weight: 600; margin-bottom: 4px; }
+.tip .r { display: flex; justify-content: space-between; gap: 14px; color: var(--text-secondary); }
+.tip .r b { color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+.empty { color: var(--text-secondary); padding: 40px 0; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>SelfScale-RL · adaptacao ao vivo</h1>
+    <span class="sub">frontend da Online Boutique · meta p95 ≤ 200 ms com o minimo de replicas</span>
+    <span class="live"><span class="dot off" id="dot"></span><span id="liveTxt">aguardando dados</span></span>
+  </header>
+
+  <section class="tiles" id="tiles"></section>
+
+  <div class="grid">
+    <section class="card" id="charts">
+      <div class="chart">
+        <h2>Latencia p95 (ms)</h2>
+        <p class="hint">O que o cliente sente. Acima da linha tracejada o SLA esta violado. A faixa abaixo mostra a classificacao de cada ciclo. Areas sombreadas: quando a carga (sistema.sh carga) ou a falha de sensor estavam ativas.</p>
+        <svg id="cP95"></svg>
+        <div class="legend" id="legKind"></div>
+      </div>
+      <div class="chart">
+        <h2>Replicas do frontend</h2>
+        <p class="hint">O que o sistema fez. ▲ aumento executado · ▼ reducao executada · ✕ reducao bloqueada pelo Planejador (cooldown).</p>
+        <svg id="cRep"></svg>
+      </div>
+      <div class="chart">
+        <h2>Carga (requisicoes por segundo)</h2>
+        <p class="hint">O que provocou a adaptacao.</p>
+        <svg id="cRps"></svg>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>O que o laco fez, ciclo a ciclo</h2>
+      <p class="hint">Mais recente no topo. Destacados: ciclos em que o sistema mudou algo ou foi impedido.</p>
+      <ul class="log" id="log"></ul>
+    </section>
+  </div>
+</div>
+<div class="tip" id="tip"></div>
+
+<script>
+const SLA = 200, MAX_REP = 5, PERIOD_MS = 15000;
+const KINDS = {
+  ok:        { label: "ok",        color: "var(--good)",     desc: "dentro da meta" },
+  risk:      { label: "risk",      color: "var(--warning)",  desc: "perto do SLA" },
+  violation: { label: "violation", color: "var(--critical)", desc: "SLA violado" },
+  idle:      { label: "idle",      color: "var(--serious)",  desc: "recurso sobrando" },
+  invalid:   { label: "invalid",   color: "var(--neutral)",  desc: "dado invalido" },
+};
+const BLOCKS = {
+  cooldown: "cooldown (so reduz 4 ciclos apos aumentar)",
+  pending: "pendencia (replicas ainda subindo)",
+  bounds: "limite de 1 a 5 replicas",
+  "invalid-data": "dado invalido",
+};
+let rows = [], events = [], running = false, hover = null, lastKey = "";
+
+const $ = id => document.getElementById(id);
+const num = v => (v === "" || v === undefined || v === "NaN") ? NaN : +v;
+const sign = d => (d > 0 ? "+" : d < 0 ? "−" : "") + Math.abs(d);
+const hhmmss = d => d.toTimeString().slice(0, 8);
+
+function parse(o) {
+  const valid = o.valid === "true";
+  return {
+    t: new Date(o.t), cycle: +o.cycle, valid,
+    p95: valid ? num(o.p95_ms) : NaN, rps: valid ? num(o.rps) : NaN,
+    replicas: +o.replicas, ready: +o.ready, kind: o.kind || (valid ? "ok" : "invalid"), state: o.state,
+    decision: +o.decision || 0, target: +o.plan_target, blocked: o.blocked_by,
+    executed: +o.executed_delta || 0, success: o.success, ttr: num(o.time_to_ready_s), reward: num(o.reward),
+  };
+}
+
+async function load() {
+  try {
+    const r = await fetch("/dados", { cache: "no-store" });
+    const j = await r.json();
+    rows = j.linhas.map(parse);
+    events = (j.eventos || []).map(e => ({ t: new Date(e.t), texto: e.texto }));
+    running = j.rodando;
+    $("dot").className = "dot" + (running ? "" : " off");
+    const modelo = { pretreinado: "modelo pre-treinado", zero: "modelo zero (aprendendo)" }[j.modelo];
+    $("liveTxt").textContent = running ? `ao vivo · ciclo a cada 15 s${modelo ? " · " + modelo : ""}` : "laco parado · grafico zerado";
+    const key = running + "/" + rows.length + "/" + events.length;
+    if (key !== lastKey) { lastKey = key; render(); }
+  } catch (e) {
+    $("dot").className = "dot off"; $("liveTxt").textContent = "servidor do painel fora do ar";
+  }
+}
+
+/* ---------------------------------------------------------------- escalas */
+function xScale(w, m) {
+  const t0 = rows[0].t.getTime() - PERIOD_MS;
+  const t1 = Math.max(rows[rows.length - 1].t.getTime() + PERIOD_MS, t0 + 4 * PERIOD_MS);
+  const f = t => m.l + (t - t0) / (t1 - t0) * (w - m.l - m.r);
+  f.t0 = t0; f.t1 = t1; return f;
+}
+function timeTicks(x) {
+  const span = (x.t1 - x.t0) / 1000;
+  const step = [30, 60, 120, 300, 600, 900].find(s => span / s <= 8) || 1800;
+  const out = [];
+  for (let s = 0; s <= span; s += step) out.push(s);
+  return out;
+}
+const fmtElapsed = s => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
+
+/* ---------------------------------------------------------------- eventos */
+// Trechos marcados pelo sistema.sh: carga (e pico) e sensor desligado.
+function intervals() {
+  const out = [], open = {};
+  const now = new Date();
+  for (const e of events) {
+    const tx = e.texto;
+    if (tx.startsWith("carga")) open.carga = { kind: "carga", a: e.t, label: tx };
+    else if (tx.startsWith("pico")) open.pico = { kind: "pico", a: e.t, label: tx };
+    else if (tx === "fim da carga") {
+      for (const k of ["carga", "pico"]) if (open[k]) { out.push({ ...open[k], b: e.t }); delete open[k]; }
+    } else if (tx === "sensor desligado") open.sensor = { kind: "sensor", a: e.t, label: "sensor desligado" };
+    else if (tx === "sensor religado" && open.sensor) { out.push({ ...open.sensor, b: e.t }); delete open.sensor; }
+  }
+  for (const k in open) out.push({ ...open[k], b: now });
+  return out;
+}
+const BAND = {
+  carga:  { fill: "var(--series-1-soft)", label: "var(--series-1)" },
+  pico:   { fill: "var(--series-1-soft)", label: "var(--series-1)" },
+  sensor: { fill: "rgba(128,128,128,.18)", label: "var(--text-secondary)" },
+};
+
+/* ---------------------------------------------------------------- graficos */
+function chart(svg, opt) {
+  const w = svg.clientWidth || svg.parentNode.clientWidth, h = opt.h, m = { l: 44, r: 14, t: 10, b: opt.strip ? 40 : 24 };
+  svg.setAttribute("viewBox", `0 0 ${w} ${h}`); svg.setAttribute("height", h);
+  const x = xScale(w, m), plotB = h - m.b;
+  const y = v => plotB - (Math.min(v, opt.yMax) / opt.yMax) * (plotB - m.t);
+  let s = "";
+  // trechos de carga / pico / falha (o que o operador provocou)
+  const L = m.l, R = w - m.r;
+  for (const iv of intervals()) {
+    const a = Math.max(L, Math.min(R, x(iv.a))), b = Math.max(L, Math.min(R, x(iv.b)));
+    if (b <= a) continue;
+    s += `<rect x="${a}" y="${m.t}" width="${b - a}" height="${plotB - m.t}" fill="${BAND[iv.kind].fill}"/>`;
+    if (opt.labels) s += `<text x="${a + 4}" y="${m.t + 12 + (iv.kind === "pico" ? 14 : 0)}" style="fill:${BAND[iv.kind].label};font-weight:600">${iv.label}</text>`;
+  }
+  // grade e eixo y
+  for (const v of opt.yTicks) {
+    s += `<line x1="${m.l}" x2="${w - m.r}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)"/>`;
+    s += `<text x="${m.l - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
+  }
+  // eixo x (tempo decorrido)
+  for (const sec of timeTicks(x)) {
+    const px = x(x.t0 + sec * 1000);
+    s += `<text x="${px}" y="${h - 6}" text-anchor="middle">${fmtElapsed(sec)}</text>`;
+  }
+  // linhas verticais nos ciclos com acao executada (ligam os tres graficos)
+  rows.forEach(r => {
+    if (r.executed) s += `<line x1="${x(r.t)}" x2="${x(r.t)}" y1="${m.t}" y2="${plotB}" stroke="var(--text-muted)" stroke-dasharray="2 3" opacity=".6"/>`;
+  });
+  if (opt.ref) {
+    s += `<line x1="${m.l}" x2="${w - m.r}" y1="${y(opt.ref)}" y2="${y(opt.ref)}" stroke="var(--critical)" stroke-width="1.5" stroke-dasharray="6 4"/>`;
+    s += `<text x="${w - m.r}" y="${y(opt.ref) - 5}" text-anchor="end">SLA ${opt.ref} ms</text>`;
+  }
+  s += opt.body(x, y, plotB, m, w);
+  if (opt.strip) {
+    const sy = plotB + 6;
+    rows.forEach((r, i) => {
+      const a = x(r.t), b = i + 1 < rows.length ? x(rows[i + 1].t) : x(r.t.getTime() + PERIOD_MS);
+      s += `<rect x="${a}" y="${sy}" width="${Math.max(1, b - a - 2)}" height="8" rx="2" fill="${KINDS[r.kind]?.color || "var(--neutral)"}"/>`;
+    });
+  }
+  if (hover !== null && rows[hover]) {
+    const hx = x(rows[hover].t);
+    s += `<line x1="${hx}" x2="${hx}" y1="${m.t}" y2="${plotB}" stroke="var(--text-primary)" stroke-width="1"/>`;
+    const v = opt.value(rows[hover]);
+    if (!isNaN(v)) s += `<circle cx="${hx}" cy="${y(v)}" r="5" fill="var(--series-1)" stroke="var(--surface-1)" stroke-width="2"/>`;
+  }
+  s += `<rect x="${m.l}" y="0" width="${w - m.l - m.r}" height="${h}" fill="transparent" data-hit="1"/>`;
+  svg.innerHTML = s;
+  const hit = svg.querySelector("[data-hit]");
+  hit.onmousemove = ev => {
+    const rect = svg.getBoundingClientRect(), px = (ev.clientX - rect.left) * (w / rect.width);
+    let best = 0, bd = Infinity;
+    rows.forEach((r, i) => { const d = Math.abs(x(r.t) - px); if (d < bd) { bd = d; best = i; } });
+    if (hover !== best) { hover = best; renderCharts(); }
+    showTip(ev.clientX, ev.clientY);
+  };
+  hit.onmouseleave = () => { hover = null; renderCharts(); $("tip").style.display = "none"; };
+}
+
+function linePath(x, y, get, step) {
+  let d = "", pen = false;
+  rows.forEach((r, i) => {
+    const v = get(r);
+    if (isNaN(v)) { pen = false; return; }
+    const px = x(r.t), py = y(v);
+    if (!pen) d += `M${px},${py}`;
+    else if (step) d += `H${px}V${py}`;
+    else d += `L${px},${py}`;
+    pen = true;
+  });
+  if (step && rows.length) d += `H${x(rows[rows.length - 1].t.getTime() + PERIOD_MS)}`;
+  return d;
+}
+
+function lastLabel(x, y, get, fmt) {
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const v = get(rows[i]);
+    if (!isNaN(v)) return `<text x="${x(rows[i].t) + 8}" y="${y(v) - 8}" style="fill:var(--text-primary);font-weight:600">${fmt(v)}</text>`;
+  }
+  return "";
+}
+
+function renderCharts() {
+  if (!rows.length) {
+    const msg = running ? "Aguardando o primeiro ciclo do laco (ate 15 s)..." : "Laco parado. Inicie com: scripts/selfscale.sh tudo";
+    $("charts").querySelectorAll("svg").forEach(s => {
+      const w = s.clientWidth || 600;
+      s.setAttribute("viewBox", `0 0 ${w} 60`); s.setAttribute("height", 60);
+      s.innerHTML = `<text x="${w / 2}" y="34" text-anchor="middle">${msg}</text>`;
+    });
+    return;
+  }
+  const maxP = Math.max(SLA * 1.5, ...rows.map(r => isNaN(r.p95) ? 0 : r.p95));
+  const yMaxP = Math.min(Math.ceil(maxP * 1.1 / 100) * 100, 1000);
+  chart($("cP95"), {
+    h: 200, yMax: yMaxP, ref: SLA, strip: true, labels: true, value: r => r.p95,
+    yTicks: [0, 1, 2, 3, 4].map(i => Math.round(yMaxP / 4 * i)),
+    body: (x, y) => {
+      let s = `<path d="${linePath(x, y, r => r.p95)}" fill="none" stroke="var(--series-1)" stroke-width="2" stroke-linejoin="round"/>`;
+      rows.forEach(r => { if (r.p95 > yMaxP) s += `<text x="${x(r.t)}" y="${y(yMaxP) - 2}" text-anchor="middle">↑${Math.round(r.p95)}</text>`; });
+      return s + lastLabel(x, y, r => r.p95, v => Math.round(v) + " ms");
+    },
+  });
+  chart($("cRep"), {
+    h: 170, yMax: MAX_REP, value: r => r.replicas, yTicks: [0, 1, 2, 3, 4, 5],
+    body: (x, y) => {
+      let s = `<path d="${linePath(x, y, r => r.replicas, true)}" fill="none" stroke="var(--series-1)" stroke-width="2"/>`;
+      rows.forEach(r => {
+        const px = x(r.t);
+        if (r.executed > 0) s += `<text x="${px}" y="${y(r.target) - 6}" text-anchor="middle" style="fill:var(--text-primary);font-size:13px">▲</text><text x="${px + 9}" y="${y(r.target) - 8}">${sign(r.executed)}</text>`;
+        if (r.executed < 0) s += `<text x="${px}" y="${y(r.target) + 16}" text-anchor="middle" style="fill:var(--text-primary);font-size:13px">▼</text><text x="${px + 9}" y="${y(r.target) + 16}">${sign(r.executed)}</text>`;
+        if (r.blocked === "cooldown") s += `<text x="${px}" y="${y(r.replicas) + 16}" text-anchor="middle" style="fill:var(--critical);font-size:12px">✕</text>`;
+      });
+      return s;
+    },
+  });
+  const maxR = Math.max(10, ...rows.map(r => isNaN(r.rps) ? 0 : r.rps));
+  const yMaxR = Math.ceil(maxR * 1.15 / 5) * 5;
+  chart($("cRps"), {
+    h: 150, yMax: yMaxR, value: r => r.rps, yTicks: [0, 1, 2, 3].map(i => Math.round(yMaxR / 3 * i)),
+    body: (x, y, plotB) => {
+      const line = linePath(x, y, r => r.rps);
+      return `<path d="${line}" fill="none" stroke="var(--series-1)" stroke-width="2" stroke-linejoin="round"/>` +
+        lastLabel(x, y, r => r.rps, v => v.toFixed(1) + " req/s");
+    },
+  });
+}
+
+/* ---------------------------------------------------------------- tooltip */
+function showTip(cx, cy) {
+  const r = rows[hover]; if (!r) return;
+  const k = KINDS[r.kind] || KINDS.invalid;
+  const tip = $("tip");
+  tip.innerHTML = `<div class="t">Ciclo ${r.cycle} · ${hhmmss(r.t)}</div>
+    <div class="r">latencia p95 <b>${isNaN(r.p95) ? "—" : Math.round(r.p95) + " ms"}</b></div>
+    <div class="r">carga <b>${isNaN(r.rps) ? "—" : r.rps.toFixed(1) + " req/s"}</b></div>
+    <div class="r">replicas <b>${r.replicas} (prontas ${r.ready})</b></div>
+    <div class="r">situacao <b>${k.label} · ${k.desc}</b></div>
+    <div class="r">estado <b>${r.state || "—"}</b></div>
+    <div class="r">decisao do agente <b>${r.valid ? sign(r.decision) : "—"}</b></div>
+    <div class="r">planejador <b>${planText(r)}</b></div>
+    <div class="r">executor <b>${execText(r)}</b></div>`;
+  tip.style.display = "block";
+  const tw = tip.offsetWidth, th = tip.offsetHeight;
+  tip.style.left = Math.min(cx + 14, innerWidth - tw - 8) + "px";
+  tip.style.top = Math.min(cy + 14, innerHeight - th - 8) + "px";
+}
+function planText(r) {
+  if (r.blocked) return "bloqueou (" + r.blocked + ")";
+  if (r.executed || r.target !== r.replicas) return `plano ${r.replicas} → ${r.target}`;
+  return "nada a fazer";
+}
+function execText(r) {
+  if (!r.executed) return "nada executado";
+  if (r.success === "true") return `${sign(r.executed)} · pronto em ${isNaN(r.ttr) ? "?" : r.ttr.toFixed(0) + " s"}`;
+  if (r.success === "false") return "falhou → plano B";
+  return sign(r.executed);
+}
+
+/* ---------------------------------------------------------------- blocos */
+function renderTiles() {
+  const el = $("tiles");
+  if (!rows.length) { el.innerHTML = ""; return; }
+  const r = rows[rows.length - 1], k = KINDS[r.kind] || KINDS.invalid;
+  const valid = rows.filter(x => x.valid);
+  const viol = valid.length ? Math.round(100 * valid.filter(x => x.kind === "violation").length / valid.length) : 0;
+  const avgRep = (rows.reduce((a, x) => a + x.replicas, 0) / rows.length).toFixed(1);
+  const acts = rows.filter(x => x.executed).length, blocks = rows.filter(x => x.blocked === "cooldown").length;
+  el.innerHTML = `
+    <div class="tile"><div class="k">Latencia p95 agora</div><div class="v">${isNaN(r.p95) ? "—" : Math.round(r.p95) + " ms"}</div><div class="n">meta ≤ ${SLA} ms</div></div>
+    <div class="tile"><div class="k">Replicas agora</div><div class="v">${r.replicas}</div><div class="n">de 1 a ${MAX_REP} · media ${avgRep}</div></div>
+    <div class="tile"><div class="k">Situacao (ciclo ${r.cycle})</div><div class="v" style="font-size:18px;padding:5px 0">${pill(r.kind)}</div><div class="n">${k.desc} · ${r.state || ""}</div></div>
+    <div class="tile"><div class="k">Ciclos violando o SLA</div><div class="v">${viol} %</div><div class="n">${valid.length} ciclos validos</div></div>
+    <div class="tile"><div class="k">Adaptacoes</div><div class="v">${acts}</div><div class="n">${blocks} reducao(oes) bloqueada(s) por cooldown</div></div>`;
+}
+function pill(kind) {
+  const k = KINDS[kind] || KINDS.invalid;
+  return `<span class="pill"><span class="sw" style="background:${k.color}"></span>${k.label}</span>`;
+}
+function renderLegend() {
+  $("legKind").innerHTML = Object.values(KINDS).map(k =>
+    `<span><span class="sw" style="background:${k.color}"></span>${k.label} · ${k.desc}</span>`).join("");
+}
+function renderLog() {
+  const el = $("log");
+  if (!rows.length) {
+    el.innerHTML = running ? `<li class="empty">Aguardando o primeiro ciclo do laco.</li>`
+      : `<li class="empty">Laco parado.<br>Inicie com: scripts/selfscale.sh tudo<br>(ou monitor, analisador...)</li>`;
+    return;
+  }
+  el.innerHTML = rows.slice().reverse().map(r => {
+    const ev = r.executed || r.blocked === "cooldown";
+    const m = r.valid ? `p95 <b>${Math.round(r.p95)} ms</b>, ${isNaN(r.rps) ? "" : r.rps.toFixed(1) + " req/s, "}${r.replicas} replica(s)` : "sensor falhou: dado invalido";
+    let flow;
+    if (!r.valid) flow = `<i>A</i> nao decide · <i>P</i> bloqueia (dado invalido) · <i>E</i> nada`;
+    else {
+      const p = r.blocked ? `bloqueou ${sign(r.decision)}: ${BLOCKS[r.blocked] || r.blocked}`
+        : r.executed ? `plano ${r.replicas} → ${r.target}` : "nada a fazer";
+      flow = `<i>A</i> estado ${r.state} → decidiu ${sign(r.decision)} · <i>P</i> ${p} · <i>E</i> ${execText(r)}`;
+    }
+    return `<li class="${ev ? "ev" : ""}"><div class="h"><b>Ciclo ${r.cycle}</b>${hhmmss(r.t)} ${pill(r.kind)}</div>
+      <div class="flow"><i>M</i> ${m}</div><div class="flow">${flow}</div></li>`;
+  }).join("");
+}
+
+function render() { renderTiles(); renderCharts(); renderLog(); }
+
+renderLegend();
+addEventListener("resize", renderCharts);
+load(); setInterval(load, 3000);
+</script>
+</body>
+</html>

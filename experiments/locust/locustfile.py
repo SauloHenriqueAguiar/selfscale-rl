@@ -3,7 +3,7 @@
 Tarefas e pesos seguem o locustfile do loadgenerator oficial
 (microservices-demo/src/loadgenerator). O cenário vem de variáveis de ambiente:
 
-    SCENARIO=C0 BASE_USERS=10 PEAK_USERS=100 locust -f locustfile.py --headless \
+    SCENARIO=C0 BASE_USERS=10 PEAK_USERS=30 locust -f locustfile.py --headless \
         --host http://localhost:8080
 """
 
@@ -28,7 +28,8 @@ CHECKOUT_FORM = {
     "city": "Mountain View",
     "state": "CA",
     "country": "United States",
-    "credit_card_number": "4432-8015-6152-0454",
+    # Sem hífens: o frontend v0.10 valida o formato e devolve 422 com eles.
+    "credit_card_number": "4432801561520454",
     "credit_card_expiration_month": "1",
     "credit_card_expiration_year": "2039",
     "credit_card_cvv": "672",
@@ -80,7 +81,7 @@ class ScenarioShape(LoadTestShape):
         else:
             self.shape = SCENARIOS[name]
         self.base = int(os.environ.get("BASE_USERS", "10"))
-        self.peak = int(os.environ.get("PEAK_USERS", "100"))
+        self.peak = int(os.environ.get("PEAK_USERS", "30"))
         # Taxa de criação alta para que os degraus sejam realmente súbitos.
         self.spawn_rate = float(os.environ.get("SPAWN_RATE", "50"))
 
