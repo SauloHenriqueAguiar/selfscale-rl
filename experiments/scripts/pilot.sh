@@ -25,7 +25,7 @@ for replicas in 1 2 3 4 5; do
     manager=$!
     SCENARIO=CONST BASE_USERS="$users" DURATION_S="$DURATION_S" \
       locust -f experiments/locust/locustfile.py --headless --host http://localhost:8080 --only-summary \
-      >"$OUT/locust_$tag.log" 2>&1
+      >"$OUT/locust_$tag.log" 2>&1 || true  # sai com 1 se houver qualquer falha
     # CPU das dependências, para conferir o isolamento (< 50% no pico).
     kubectl --context "$CTX" -n "$NS" top pods >"$OUT/top_$tag.txt" || true
     kill -INT "$manager"; wait "$manager" || true

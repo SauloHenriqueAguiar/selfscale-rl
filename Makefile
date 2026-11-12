@@ -5,7 +5,7 @@ CONFIG      ?= configs/config.yaml
 MODE        ?= observe
 SCENARIO    ?= C1
 BASE_USERS  ?= 10
-PEAK_USERS  ?= 100
+PEAK_USERS  ?= 30
 
 # Usa o ambiente virtual Python (.venv) quando existir: python3, pytest e locust vêm dele.
 VENV        := .venv
@@ -20,7 +20,8 @@ BIN         := bin
 .DEFAULT_GOAL := help
 .PHONY: venv help build fmt lint test cover test-integration pytest tf-check check \
         cluster-up probe-image deploy hpa-on hpa-off cluster-down \
-        run simulate calibrate load pilot matrix report
+        run simulate calibrate load pilot matrix report \
+        laco painel carga-aleatoria carga-curta laco-parar
 
 help: ## Lista os alvos
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -103,7 +104,7 @@ calibrate: build ## Calibra o simulador com data/pilot.csv
 simulate: build ## Pré-treino no simulador (gera data/qtable.json)
 	$(BIN)/simulate train --config $(CONFIG) --model data/sim_model.json
 
-load: ## Carga Locust: make load SCENARIO=C0 BASE_USERS=10 PEAK_USERS=100
+load: ## Carga Locust: make load SCENARIO=C0 BASE_USERS=10 PEAK_USERS=30
 	@mkdir -p data
 	SCENARIO=$(SCENARIO) BASE_USERS=$(BASE_USERS) PEAK_USERS=$(PEAK_USERS) \
 	  locust -f experiments/locust/locustfile.py --headless --host http://localhost:8080 \
@@ -118,3 +119,25 @@ matrix: build ## Matriz de experimentos E1–E4 × C0–C4 × repetições
 report: ## Tabela consolidada, testes estatísticos e gráficos
 	python3 -m analysis.report data --out data/report.csv
 	python3 -m analysis.stats data/runs.csv
+
+# ---------------------------------------------------------------- laço ao vivo
+ETAPA  ?= tudo
+MODELO ?=
+
+laco: ## Laço MAPE-K comentado: make laco ETAPA=tudo|monitor|... [MODELO=pretreinado|zero]
+	scripts/selfscale.sh $(ETAPA) $(MODELO)
+
+painel: ## Painel no navegador (http://localhost:8090) com o laço ao vivo
+	scripts/selfscale.sh grafico
+
+MINUTOS ?= 30
+SEMENTE ?=
+
+carga-aleatoria: ## Carga aleatória longa: make carga-aleatoria MINUTOS=30 [SEMENTE=n]
+	scripts/selfscale.sh carga $(MINUTOS) $(SEMENTE)
+
+carga-curta: ## Carga curta (~2 min 15 s, 10 → 30 usuários) para ver o laço adaptar
+	scripts/selfscale.sh carga-curta
+
+laco-parar: ## Para o laço comentado e volta o frontend para 1 réplica
+	scripts/selfscale.sh parar

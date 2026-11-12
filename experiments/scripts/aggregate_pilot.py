@@ -9,6 +9,10 @@ from pathlib import Path
 import pandas as pd
 
 WARMUP_CYCLES = 2  # o primeiro meio minuto ainda reflete a carga anterior
+# cpu_pct é relativo a requests.cpu (100m); o limite (200m) equivale a 200%.
+# Acima de 90% do limite o frontend está estrangulado: o p95 fica contido pelo
+# Locust de laço fechado e o ponto sai do domínio do modelo de filas.
+SATURATED_CPU_PCT = 180
 
 
 def aggregate(history_dir):
@@ -28,6 +32,13 @@ def aggregate(history_dir):
     return pd.DataFrame(rows)
 
 
+def drop_saturated(df, limit=SATURATED_CPU_PCT):
+    """Remove os pontos com o frontend no limite de CPU (não servem para calibrar)."""
+    return df[df["cpu_frontend"] < limit]
+
+
 if __name__ == "__main__":
-    aggregate(sys.argv[1]).to_csv(sys.argv[2], index=False)
-    print("gravado", sys.argv[2])
+    all_points = aggregate(sys.argv[1])
+    points = drop_saturated(all_points)
+    points.to_csv(sys.argv[2], index=False)
+    print(f"gravado {sys.argv[2]} ({len(all_points) - len(points)} pontos saturados removidos)")
