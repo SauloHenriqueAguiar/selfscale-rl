@@ -201,10 +201,10 @@ o que cada etapa recebeu, decidiu e executou. Cada etapa pode ser vista em um
 terminal; todos mostram o mesmo laço, e os números de ciclo coincidem. O laço
 **atua no cluster**, com um de dois modelos (2º argumento ou `MODELO=...`):
 
-| Modelo | Q-table | Aprende? |
-| --- | --- | --- |
-| `pretreinado` (padrão) | `data/qtable.json` (simulador + ajuste fino) | não: política gulosa, tabela intacta |
-| `zero` | zerada, sem conhecimento prévio | sim: ε-greedy a cada ciclo; salva em `data/qtable_zero.json` |
+| Modelo                    | Q-table                                        | Aprende?                                                        |
+| ------------------------- | ---------------------------------------------- | --------------------------------------------------------------- |
+| `pretreinado` (padrão) | `data/qtable.json` (simulador + ajuste fino) | não: política gulosa, tabela intacta                          |
+| `zero`                  | zerada, sem conhecimento prévio               | sim: ε-greedy a cada ciclo; salva em `data/qtable_zero.json` |
 
 ```bash
 scripts/selfscale.sh monitor        # terminal 1: [M] o que foi medido e se o dado é válido
