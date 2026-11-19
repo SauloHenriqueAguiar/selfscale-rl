@@ -1,7 +1,11 @@
 guia/
 
 # saídas dos experimentos e binários
-data/
+data/*
+# modelo já treinado: quem clonar usa o laço pré-treinado sem rodar o piloto
+!data/pilot.csv
+!data/sim_model.json
+!data/qtable.json
 bin/
 
 # Terraform

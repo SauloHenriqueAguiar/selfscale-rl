@@ -20,10 +20,13 @@ import (
 	"github.com/shna/selfscale-rl/simulator"
 )
 
-// Critério de convergência: janela de episódios e variação relativa máxima da recompensa.
+// O critério de convergência só é relatado: parar por ele deixava estados raros
+// sem treino. Por padrão o treino roda um número fixo de episódios.
 const (
+	trainEpisodes        = 100000 // 32 estados: estados raros (ex.: HIGH/7) precisam de muitas visitas
 	convergenceWindow    = 20
 	convergenceTolerance = 0.05
+	idleTailCycles       = 8 // 2 min sem carga: tempo para voltar de 5 a 1 com o cooldown
 )
 
 func main() {
@@ -78,8 +81,10 @@ func train(args []string) error {
 	modelPath := fs.String("model", "data/sim_model.json", "modelo calibrado (usa o padrão se não existir)")
 	curve := fs.String("curve", "data/sim_learning.csv", "curva de aprendizado")
 	base := fs.Float64("base", 7, "vazão base dos cenários (req/s): 10 usuários no piloto")
-	peak := fs.Float64("peak", 20, "vazão de pico dos cenários (req/s): 30 usuários no piloto")
-	episodes := fs.Int("episodes", 2000, "máximo de episódios")
+	peak := fs.Float64("peak", 40, "vazão de pico dos cenários (req/s): ~60 usuários, o máximo que 8 réplicas atendem")
+	episodes := fs.Int("episodes", trainEpisodes, "máximo de episódios")
+	idle := fs.Int("idle", idleTailCycles, "ciclos sem carga ao fim de cada cenário")
+	window := fs.Int("window", 0, "janela do critério de parada antecipada (0 = treina todos os episódios)")
 	_ = fs.Parse(args)
 
 	cfg, err := storage.LoadConfig(*cfgPath)
@@ -93,8 +98,8 @@ func train(args []string) error {
 	s := cfg.Settings()
 	agent := newTrainingAgent(s)
 	stats := simulator.Train(simulator.TrainConfig{
-		Settings: s, Model: model, Scenarios: simulator.Scenarios(), BaseRPS: *base, PeakRPS: *peak,
-		Period: cfg.Sensors.Period, MaxEpisodes: *episodes, Window: convergenceWindow, Tolerance: convergenceTolerance,
+		Settings: s, Model: model, Scenarios: simulator.TrainingScenarios(*idle), BaseRPS: *base, PeakRPS: *peak,
+		Period: cfg.Sensors.Period, MaxEpisodes: *episodes, Window: *window, Tolerance: convergenceTolerance,
 	}, agent, rand.New(rand.NewSource(s.Learning.Seed)))
 
 	report(stats, agent, s.Policy)
@@ -128,8 +133,8 @@ func report(stats []simulator.EpisodeStats, agent *qlearning.Agent, p knowledge.
 	converged := simulator.Converged(stats, convergenceWindow, convergenceTolerance)
 	last := stats[len(stats)-1]
 	fmt.Printf("episódios=%d convergiu=%v recompensa_média_final=%.3f ε=%.3f\n", len(stats), converged, last.MeanReward, last.Epsilon)
-	fmt.Println("política gulosa (réplicas 1..5):")
-	for band := knowledge.BandLow; band <= knowledge.BandHigh; band++ {
+	fmt.Printf("política gulosa (réplicas %d..%d):\n", p.MinReplicas, p.MaxReplicas)
+	for band := knowledge.BandLow; band <= knowledge.BandIdle; band++ {
 		fmt.Printf("  %-4s", band)
 		for r := p.MinReplicas; r <= p.MaxReplicas; r++ {
 			fmt.Printf(" %+d", agent.Best(knowledge.State{Band: band, Replicas: r}))

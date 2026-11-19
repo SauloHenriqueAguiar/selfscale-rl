@@ -10,7 +10,7 @@ var testPolicy = knowledge.Policy{MinReplicas: 1, MaxReplicas: 5, ScaleDownMaxSt
 
 func TestState_IndexCoversAllStatesOnce(t *testing.T) {
 	seen := map[int]bool{}
-	for b := knowledge.BandLow; b <= knowledge.BandHigh; b++ {
+	for b := knowledge.BandLow; b <= knowledge.BandIdle; b++ {
 		for r := 1; r <= 5; r++ {
 			s := knowledge.State{Band: b, Replicas: r}
 			i := s.Index(testPolicy)
@@ -23,13 +23,16 @@ func TestState_IndexCoversAllStatesOnce(t *testing.T) {
 			}
 		}
 	}
-	if knowledge.NumStates(testPolicy) != 15 {
-		t.Errorf("NumStates = %d, quer 15", knowledge.NumStates(testPolicy))
+	if knowledge.NumStates(testPolicy) != 20 {
+		t.Errorf("NumStates = %d, quer 20", knowledge.NumStates(testPolicy))
 	}
 }
 
 func TestLatencyBand_String(t *testing.T) {
 	if s := (knowledge.State{Band: knowledge.BandHigh, Replicas: 2}).String(); s != "HIGH/2" {
+		t.Errorf("String = %q", s)
+	}
+	if s := (knowledge.State{Band: knowledge.BandIdle, Replicas: 3}).String(); s != "IDLE/3" {
 		t.Errorf("String = %q", s)
 	}
 }

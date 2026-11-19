@@ -58,6 +58,24 @@ func TestAnalyzer_RewardUsesExecutedDeltaFromKnowledge(t *testing.T) {
 	}
 }
 
+// Num ciclo em transição (pods novos ainda não prontos) o Planejador força
+// "manter"; aprender essa transição creditaria a melhora seguinte a "manter
+// com latência alta". A transição seguinte, já estável, é aprendida.
+func TestAnalyzer_SkipsLearningFromPendingState(t *testing.T) {
+	a, l, _, _ := newTestAnalyzer(0, analyzer.Options{Learn: true, Act: true})
+	pending := symptom(300, 2)
+	pending.ReadyReplicas = 1
+	a.Handle(pending)
+	a.Handle(symptom(150, 2))
+	if len(l.Calls) != 0 {
+		t.Fatalf("não deveria aprender a partir do estado em transição: %v", l.Calls)
+	}
+	a.Handle(symptom(150, 2))
+	if len(l.Calls) != 1 {
+		t.Errorf("esperava aprender a partir do estado estável, veio %d", len(l.Calls))
+	}
+}
+
 func TestAnalyzer_ObserveModeOnlyClassifies(t *testing.T) {
 	a, l, _, _ := newTestAnalyzer(+1, analyzer.Options{})
 	a.Handle(symptom(300, 1))

@@ -1,8 +1,5 @@
 // Package monitor é a etapa M do MAPE-K ("o que está acontecendo?"):
 // coleta as métricas a cada ciclo, normaliza, filtra e emite o Sintoma.
-//
-// Arquivos: ports.go (sensores de que precisa), filters.go (processamento) e
-// monitor.go (Coletor, Gerador e Emissor de Sintoma).
 package monitor
 
 import (

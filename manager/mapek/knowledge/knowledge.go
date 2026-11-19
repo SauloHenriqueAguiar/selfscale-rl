@@ -1,11 +1,5 @@
-// Package knowledge é a Base de Conhecimento (K do MAPE-K), compartilhada
-// pelas etapas:
-//
-//	messages.go   mensagens entre as etapas e catálogo de sintomas
-//	state.go      estado discreto (faixa de p95, réplicas)
-//	settings.go   metas e políticas do operador (somente leitura)
-//	knowledge.go  memória de execução e histórico de cada ciclo
-//	checkpoint.go persistência da Q-table ao fim de cada episódio
+// Package knowledge é a Base de Conhecimento (K do MAPE-K) compartilhada pelas
+// etapas: mensagens, estado discreto, metas do operador e memória de execução.
 package knowledge
 
 import (
@@ -65,6 +59,13 @@ func (b *Base) FinishExecution(r ExecutionResult) {
 	defer b.mu.Unlock()
 	b.executing = false
 	b.finished = &r
+}
+
+// CyclesSinceScaleUp devolve os ciclos desde o último aumento, sem contar mais um.
+func (b *Base) CyclesSinceScaleUp() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.cyclesSinceScaleUp
 }
 
 // Executing indica se há execução em andamento.

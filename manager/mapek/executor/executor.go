@@ -1,9 +1,6 @@
 // Package executor é a etapa E do MAPE-K ("fazer"): autoriza o plano, executa
 // os passos (Scale → AwaitReady → Confirm), aplica o plano B em caso de falha
 // e registra o resultado na Base de Conhecimento.
-//
-// Arquivos: ports.go (efetuadores), steps.go (passos no padrão Command) e
-// executor.go (Engine de Workflow).
 package executor
 
 import (

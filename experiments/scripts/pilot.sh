@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Piloto (Fase 8): réplicas fixas 1..5 × cargas crescentes. Para cada par,
+# Piloto : réplicas fixas 1..8 × cargas crescentes. Para cada par,
 # roda o gerenciador em modo observe enquanto o Locust aplica carga constante,
 # e depois consolida tudo em data/pilot.csv (rps, replicas, p95_ms, cpu_frontend).
 # Ajuste USERS e DURATION_S conforme a máquina.
@@ -15,7 +15,7 @@ DURATION_S=${DURATION_S:-180}
 OUT=data/pilot
 mkdir -p "$OUT"
 
-for replicas in 1 2 3 4 5; do
+for replicas in ${REPLICAS:-1 2 3 4 5 6 7 8}; do
   kubectl --context "$CTX" -n "$NS" scale deploy/frontend --replicas="$replicas"
   kubectl --context "$CTX" -n "$NS" rollout status deploy/frontend --timeout=120s
   for users in $USERS; do

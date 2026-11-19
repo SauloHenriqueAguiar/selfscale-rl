@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Acompanha o laco MAPE-K ao vivo, etapa por etapa, e injeta carga e falhas.
-# Uso: scripts/selfscale.sh <comando>   (sem argumento mostra a ajuda)
+# Uso: experiments/selfscale.sh <comando>   (sem argumento mostra a ajuda)
 #
 # Um UNICO laco MAPE-K roda em segundo plano (bin/explain). Cada terminal
 # mostra uma etapa desse mesmo laco (monitor, analisador, ...): os ciclos
@@ -41,7 +41,7 @@ cluster_existe() { kubectl config get-contexts -o name 2>/dev/null | grep -qx "$
 exigir_cluster() {
   cluster_existe && return
   echo "O cluster nao esta ligado (contexto $CTX nao existe)."
-  echo "Suba o ambiente antes: scripts/selfscale.sh subir   (ou: make cluster-up && make deploy)"
+  echo "Suba o ambiente antes: experiments/selfscale.sh subir   (ou: make cluster-up && make deploy)"
   exit 1
 }
 
@@ -72,7 +72,7 @@ garantir_laco() {
   if laco_rodando; then
     if [ -n "$pedido" ] && [ "$pedido" != "$(modelo_rodando)" ]; then
       echo "O laco ja esta rodando com o modelo $(modelo_rodando), nao $pedido."
-      echo "Para trocar: scripts/selfscale.sh parar   e depois inicie de novo com o modelo $pedido."
+      echo "Para trocar: experiments/selfscale.sh parar   e depois inicie de novo com o modelo $pedido."
       exit 1
     fi
     echo "Conectado ao laco MAPE-K em execucao (pid $(cat "$PIDFILE"), modelo $(modelo_rodando))."
@@ -95,6 +95,7 @@ garantir_laco() {
       echo "Modelo ZERO: Q-table zerada, aprende durante o laco e salva em data/qtable_zero.json."
     else
       echo "Modelo PRE-TREINADO: usa data/qtable.json sem aprender."
+      [ -f data/qtable.json ] || echo "Aviso: data/qtable.json nao existe; gere com: make simulate"
     fi
   fi
   flock -u 9
@@ -104,7 +105,7 @@ garantir_laco() {
 ver() {
   local nome=$1
   garantir_laco "$2"
-  echo "Mostrando: $nome. Ctrl+C sai desta tela (o laco continua; para parar: scripts/selfscale.sh parar)."
+  echo "Mostrando: $nome. Ctrl+C sai desta tela (o laco continua; para parar: experiments/selfscale.sh parar)."
   trap 'echo; echo "Saiu da tela de $nome; o laco continua rodando."; exit 0' INT
   tail -n +1 -F "$LOGS/$nome.log" 2>/dev/null
 }
@@ -164,6 +165,9 @@ SelfScale-RL - acompanhar o laco MAPE-K ao vivo
                     A semente aparece no inicio; repita-a para refazer o mesmo plano.
                     BASE_USERS (10) e PEAK_USERS (40) ajustam os niveis.
     carga-curta     carga curta (~2 min 15 s): 10 usuarios -> pico de 30
+    carga-continua  carga sem fim (Ctrl+C para): fases de 60 s com 10, 20, 30 ... 100
+                    usuarios (de 10 em 10); ao chegar em 100 volta para 10
+                    (mude com USUARIOS="10,50,500" FASE_S=90)
     falha-sensor    derruba o Prometheus (o Monitor marca dado invalido e nao trava)
     volta-sensor    religa o Prometheus
 
@@ -274,7 +278,7 @@ for s in random_plan(*map(int, sys.argv[1:5])): print(f"{s.start:g}\t{s.end:g}\t
       "$duracao" "$semente" "$base" "$pico")
 
   echo "Carga aleatoria na Online Boutique ($LOJA): $minutos min, ${#ini[@]} trechos, base $base, pico $pico usuarios."
-  echo "Semente $semente (para repetir este plano: scripts/selfscale.sh carga $minutos $semente)"
+  echo "Semente $semente (para repetir este plano: experiments/selfscale.sh carga $minutos $semente)"
   echo
   local k
   for k in "${!ini[@]}"; do
@@ -310,6 +314,37 @@ for s in random_plan(*map(int, sys.argv[1:5])): print(f"{s.start:g}\t{s.end:g}\t
   echo "    (log completo do Locust em $log)"
 }
 
+# Carga sem fim: fases de FASE_S segundos com os usuarios de USUARIOS, em rodizio.
+carga_continua() {
+  local usuarios=${USUARIOS:-10,20,30,40,50,60,70,80,90,100} fase_s=${FASE_S:-60}
+  local log=data/locust_carga_continua.log
+  local -a fases
+  IFS=, read -r -a fases <<< "$usuarios"
+  laco_rodando || echo "Aviso: o laco nao esta rodando; o grafico so registra com o laco ligado."
+  mkdir -p data
+  echo "Carga continua na Online Boutique ($LOJA): fases de $fase_s s com $usuarios usuarios."
+  echo "Depois da ultima fase recomeca. Ctrl+C para parar."
+
+  USUARIOS=$usuarios FASE_S=$fase_s \
+    locust -f experiments/locust/carga_continua.py --headless --host $LOJA \
+    --only-summary --loglevel ERROR > "$log" 2>&1 &
+  local pid=$! inicio=$SECONDS anterior=-1 rodada=1 i
+  trap 'kill '"$pid"' 2>/dev/null; evento "fim da carga"; echo; echo "Carga interrompida (log em '"$log"')."; exit 0' INT TERM
+
+  while kill -0 "$pid" 2>/dev/null; do
+    i=$(( ((SECONDS - inicio) / fase_s) % ${#fases[@]} ))
+    if [ "$i" -ne "$anterior" ]; then
+      [ "$i" -lt "$anterior" ] && rodada=$((rodada + 1))
+      evento "carga ${fases[$i]} usuarios"
+      echo "=== [$(mmss $((SECONDS - inicio)))] rodada $rodada, fase $((i + 1))/${#fases[@]}: ${fases[$i]} usuarios ==="
+      anterior=$i
+    fi
+    sleep 5
+  done
+  evento "fim da carga"
+  echo "O Locust terminou sozinho; veja $log."
+}
+
 mmss() { printf '%02d:%02d' $(($1 / 60)) $(($1 % 60)); }
 
 grafico() {
@@ -339,12 +374,13 @@ case "${1:-ajuda}" in
   conhecimento) pedido=${2:-${MODELO:-}}; validar_modelo "$pedido"
                 compilar && "$EXPLAIN" --etapa conhecimento --modelo "$(modelo_efetivo "$pedido")" && echo && ver conhecimento "$pedido" ;;
   parar)        parar ;;
-  escalar)      laco_rodando && { echo "Pare o laco antes (scripts/selfscale.sh parar): os dois escalariam juntos."; exit 1; }
+  escalar)      laco_rodando && { echo "Pare o laco antes (experiments/selfscale.sh parar): os dois escalariam juntos."; exit 1; }
                 exigir_cluster; compilar && "$EXPLAIN" --etapa executor --replicas "${2:?informe o numero de replicas, ex.: escalar 2}" ;;
   observe)      make build && bin/selfscale --mode observe --scenario observe --history data/history_observe.csv ;;
   ver-historico) ver_historico "${2:-}" ;;
   carga)        carga_aleatoria "${2:-}" "${3:-}" ;;
   carga-curta)  carga_curta ;;
+  carga-continua) carga_continua ;;
   grafico)      grafico ;;
   falha-sensor) exigir_cluster; kubectl --context $CTX -n monitoring scale deploy/prometheus-server --replicas=0 && evento "sensor desligado" && echo "Prometheus desligado: veja dado invalido no Monitor" ;;
   volta-sensor) exigir_cluster; kubectl --context $CTX -n monitoring scale deploy/prometheus-server --replicas=1 && evento "sensor religado" && echo "Prometheus religado: em ~30 s o Monitor volta a dado valido" ;;

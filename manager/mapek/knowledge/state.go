@@ -2,7 +2,8 @@ package knowledge
 
 import "fmt"
 
-// LatencyBand é a faixa discreta do p95 (a discretização é feita pelo Analisador).
+// LatencyBand é a faixa discreta do p95. BandIdle (sem tráfego) é separada de
+// BandLow: com carga, reduzir pode violar o SLA; sem carga, é sempre seguro.
 type LatencyBand int
 
 // Faixas de latência. A ordem define o índice do estado.
@@ -10,13 +11,14 @@ const (
 	BandLow LatencyBand = iota
 	BandOK
 	BandHigh
+	BandIdle // por último, para manter os índices das demais faixas
 )
 
 // NumLatencyBands é o número de faixas de latência.
-const NumLatencyBands = 3
+const NumLatencyBands = 4
 
 func (b LatencyBand) String() string {
-	return [...]string{"LOW", "OK", "HIGH"}[b]
+	return [...]string{"LOW", "OK", "HIGH", "IDLE"}[b]
 }
 
 // State é o estado discreto do agente: (faixa de p95, réplicas).
@@ -32,7 +34,7 @@ func (s State) Index(p Policy) int {
 	return int(s.Band)*p.ReplicaSpan() + s.Replicas - p.MinReplicas
 }
 
-// NumStates é o total de estados para a política dada (15 com 1..5 réplicas).
+// NumStates é o total de estados para a política dada (32 com 1..8 réplicas).
 func NumStates(p Policy) int { return NumLatencyBands * p.ReplicaSpan() }
 
 // StateFromIndex é o inverso de Index.

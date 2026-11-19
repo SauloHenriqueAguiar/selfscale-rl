@@ -11,7 +11,7 @@
 //	zero         Q-table zerada (sem conhecimento previo), aprende durante o laco
 //	             com epsilon-greedy e salva em --salvar (nunca na Q-table pre-treinada)
 //
-// Normalmente e usado por scripts/selfscale.sh. Uso direto:
+// Normalmente e usado por experiments/selfscale.sh. Uso direto:
 //
 //	explain --etapa laco [--modelo zero] [--tela]   laco completo (atua no cluster)
 //	explain --etapa executor --replicas N            executa um plano montado a mao
@@ -211,7 +211,6 @@ type session struct {
 	ana      *analyzer.Analyzer
 	pla      *planner.Planner
 	exe      *executor.Executor
-	sinceUp  int // ciclos desde o ultimo aumento (o que o cooldown olha)
 }
 
 // recorder e o historico visto pelo laco comentado: guarda o ultimo registro do ciclo
@@ -292,7 +291,7 @@ func newSession(cfg storage.Config, out outputs, m model) (*session, error) {
 
 	store := storage.JSONQTable{Path: m.savePath}
 	return &session{
-		cfg: cfg, s: s, out: out, model: m, agent: agent, store: store, k: k, hist: hist, effector: eff, sinceUp: math.MaxInt32,
+		cfg: cfg, s: s, out: out, model: m, agent: agent, store: store, k: k, hist: hist, effector: eff,
 		mon: monitor.New(traffic, sensor, sensor, monitor.DefaultProcessors()),
 		ana: newAnalyzer(cfg, m, agent, store, k),
 		pla: planner.New(k, s.Policy),
@@ -316,7 +315,8 @@ func newAnalyzer(cfg storage.Config, m model, agent *qlearning.Agent, store stor
 
 // ------------------------------------------------------------------ laco
 
-func (d *session) loop(ctx context.Context, ciclos int) error {
+// requireNoHPA impede que HPA e o laco escalem o mesmo Deployment.
+func (d *session) requireNoHPA(ctx context.Context) error {
 	has, err := d.effector.HasHPA(ctx)
 	if err != nil {
 		return err
@@ -324,6 +324,14 @@ func (d *session) loop(ctx context.Context, ciclos int) error {
 	if has {
 		return errors.New("ha um HPA no frontend; rode `make hpa-off` antes")
 	}
+	return nil
+}
+
+func (d *session) loop(ctx context.Context, ciclos int) error {
+	if err := d.requireNoHPA(ctx); err != nil {
+		return err
+	}
+	defer d.hist.csv.Close()
 	d.intro()
 	defer d.saveLearned()
 	ticker := time.NewTicker(d.cfg.Sensors.Period)
@@ -391,8 +399,8 @@ func (d *session) cycle(ctx context.Context, now time.Time) {
 	plan := d.pla.Handle(req)
 	printPlanner(d.out.w("planejador"), plan, d.s.Policy)
 
-	executed := d.printExecutor(ctx, d.out.w("executor"), plan)
-	d.printKnowledge(d.out.w("conhecimento"), sym, executed)
+	d.printExecutor(ctx, d.out.w("executor"), plan)
+	d.printKnowledge(d.out.w("conhecimento"), sym)
 }
 
 // ------------------------------------------------------------------ etapas
@@ -422,7 +430,7 @@ func (d *session) printAnalyzer(w io.Writer, r knowledge.ChangeRequest) {
 		fmt.Fprintf(w, "    %s→ envia ao Planejador um pedido marcado como dado invalido%s\n", dim, reset)
 		return
 	}
-	fmt.Fprintf(w, "    estado        = %s%s%s  (faixa do p95: LOW < %.0f ms <= OK <= %.0f ms < HIGH ; / replicas)\n",
+	fmt.Fprintf(w, "    estado        = %s%s%s  (faixa do p95: LOW < %.0f ms <= OK <= %.0f ms < HIGH ; IDLE = sem trafego ; / replicas)\n",
 		bold, r.State, reset, g.LowRatio*g.SLAP95Ms, g.SLAP95Ms)
 	if !math.IsNaN(r.Reward) {
 		fmt.Fprintf(w, "    recompensa    = %+.2f  (nota da acao do ciclo anterior: SLA ok %+.1f / violado %+.1f, −%.1f por replica, −%.1f se oscilar)\n",
@@ -482,19 +490,17 @@ func printPlanner(w io.Writer, p knowledge.AdaptationPlan, pol knowledge.Policy)
 	fmt.Fprintf(w, "    %s→ envia o Plano ao Executor%s\n", dim, reset)
 }
 
-func (d *session) printExecutor(ctx context.Context, w io.Writer, p knowledge.AdaptationPlan) knowledge.Delta {
+func (d *session) printExecutor(ctx context.Context, w io.Writer, p knowledge.AdaptationPlan) {
 	fmt.Fprintf(w, "%s[E] EXECUTOR%s %s— recebeu o Plano: allowlist → scale → aguarda prontas → confirma (API Kubernetes)%s\n", green+bold, reset, dim, reset)
 	if p.Empty {
 		fmt.Fprintf(w, "    plano vazio: nada a executar\n")
 	} else {
 		fmt.Fprintf(w, "    escalando %s: %d → %d replica(s)... aguardando os pods ficarem prontos\n", d.cfg.TargetName(), p.Fallback, p.Target)
 	}
-	executed := d.exe.Dispatch(ctx, p)
-	if executed != 0 {
+	if d.exe.Dispatch(ctx, p) != 0 {
 		d.printResult(w)
 	}
 	fmt.Fprintf(w, "    %s→ registra o resultado na Base de Conhecimento%s\n", dim, reset)
-	return executed
 }
 
 func (d *session) printResult(w io.Writer) {
@@ -512,18 +518,13 @@ func (d *session) printResult(w io.Writer) {
 	}
 }
 
-func (d *session) printKnowledge(w io.Writer, sym knowledge.Symptom, executed knowledge.Delta) {
-	if executed > 0 {
-		d.sinceUp = 0
-	} else if d.sinceUp < math.MaxInt32 {
-		d.sinceUp++
-	}
+func (d *session) printKnowledge(w io.Writer, sym knowledge.Symptom) {
 	last, prev := d.k.LastExecuted()
 	fmt.Fprintf(w, "%s[K] CONHECIMENTO%s %s— memoria compartilhada pelas etapas (metas, Q-table, historico)%s\n", purple+bold, reset, dim, reset)
 	fmt.Fprintf(w, "    ultima acao executada = %+d (anterior %+d)  %s← o Analisador usa para calcular a recompensa%s\n", last, prev, dim, reset)
-	if d.sinceUp < math.MaxInt32 {
+	if since := d.k.CyclesSinceScaleUp(); since < math.MaxInt32 {
 		fmt.Fprintf(w, "    ciclos desde o ultimo aumento = %d  %s← o Planejador so reduz a partir de %d (cooldown)%s\n",
-			d.sinceUp, dim, d.s.Policy.ScaleDownCooldownCycles, reset)
+			since, dim, d.s.Policy.ScaleDownCooldownCycles, reset)
 	}
 	fmt.Fprintf(w, "    historico: ciclo %d gravado em %s\n", sym.Cycle, d.hist.path)
 	if d.model.learns() {
@@ -538,12 +539,8 @@ func (d *session) executorOnly(ctx context.Context, target int) error {
 	if target < pol.MinReplicas || target > pol.MaxReplicas {
 		return fmt.Errorf("replicas deve estar entre %d e %d", pol.MinReplicas, pol.MaxReplicas)
 	}
-	has, err := d.effector.HasHPA(ctx)
-	if err != nil {
+	if err := d.requireNoHPA(ctx); err != nil {
 		return err
-	}
-	if has {
-		return errors.New("ha um HPA no frontend; rode `make hpa-off` antes")
 	}
 	w := os.Stdout
 	sym := d.mon.Handle(ctx, time.Now())
@@ -557,11 +554,7 @@ func (d *session) executorOnly(ctx context.Context, target int) error {
 	}
 	plan := knowledge.AdaptationPlan{
 		T: time.Now(), Target: target, Fallback: sym.Replicas, Timeout: pol.ReadinessTimeout,
-		Steps: []knowledge.Step{
-			{Kind: knowledge.StepScale, Replicas: target},
-			{Kind: knowledge.StepAwaitReady, Replicas: target},
-			{Kind: knowledge.StepConfirm, Replicas: target},
-		},
+		Steps:   planner.Steps(target),
 		Request: knowledge.ChangeRequest{Symptom: sym, Delta: knowledge.Delta(target - sym.Replicas)},
 	}
 	d.printExecutor(ctx, w, plan)
@@ -589,11 +582,11 @@ func showKnowledge(w io.Writer, cfg storage.Config, m model) error {
 		return err
 	}
 	if m.learns() {
-		fmt.Fprintf(w, "%sModelo ZERO: Q-table zerada (15 estados × 4 acoes)%s\n", bold, reset)
+		fmt.Fprintf(w, "%sModelo ZERO: Q-table zerada (%d estados × 4 acoes)%s\n", bold, knowledge.NumStates(p), reset)
 		fmt.Fprintf(w, "  %sNo empate o agente mantem as replicas (acao 0); aprende com a recompensa a cada ciclo%s\n", dim, reset)
 		fmt.Fprintf(w, "  %se salva o que aprendeu em %s.%s\n", dim, m.savePath, reset)
 	} else {
-		fmt.Fprintf(w, "%sModelo PRE-TREINADO: Q-table %s (15 estados × 4 acoes)%s\n", bold, cfg.Learning.QTablePath, reset)
+		fmt.Fprintf(w, "%sModelo PRE-TREINADO: Q-table %s (%d estados × 4 acoes)%s\n", bold, cfg.Learning.QTablePath, knowledge.NumStates(p), reset)
 	}
 	fmt.Fprintf(w, "  %-8s %8s %8s %8s %8s   melhor\n", "estado", "−1", "0", "+1", "+2")
 	for i := 0; i < knowledge.NumStates(p); i++ {

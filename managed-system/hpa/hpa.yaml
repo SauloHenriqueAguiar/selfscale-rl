@@ -5,7 +5,7 @@ metadata: { name: frontend, namespace: boutique }
 spec:
   scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: frontend }
   minReplicas: 1
-  maxReplicas: 5
+  maxReplicas: 8
   metrics:
     - type: Resource
       resource: { name: cpu, target: { type: Utilization, averageUtilization: 70 } }

@@ -11,7 +11,7 @@ sozinho o **número de réplicas do `frontend`** da
 [Online Boutique](https://github.com/GoogleCloudPlatform/microservices-demo),
 uma loja virtual de referência com 11 microsserviços, orientado diretamente pela
 experiência do cliente. A meta é manter a **latência p95 em até 200 ms** usando o
-**menor número possível de réplicas (de 1 a 5)**, **sem oscilar** entre aumentar e
+**menor número possível de réplicas (de 1 a 8)**, **sem oscilar** entre aumentar e
 reduzir, e voltar ao normal em cerca de um minuto depois de um pico.
 
 O gerenciador segue o modelo **MAPE-K** (Monitor, Analisar, Planejar, Executar
@@ -23,7 +23,7 @@ da loja, e decide se deve aumentar, manter ou reduzir réplicas.
 A decisão é tomada por um agente de **aprendizado por reforço (Q-Learning
 tabular)**. Em vez de regras fixas escritas à mão, o agente aprende, pela
 recompensa de cada ação, qual equilíbrio entre latência, custo e estabilidade
-funciona melhor para essa aplicação. A tabela é pequena (15 estados × 4 ações),
+funciona melhor para essa aplicação. A tabela é pequena (32 estados × 4 ações),
 o que mantém o comportamento inspecionável e dispensa bibliotecas de ML. Como
 aprender só no cluster seria lento, o agente é pré-treinado em minutos num
 **simulador** baseado em teoria de filas, calibrado com medições reais, e depois
@@ -45,7 +45,7 @@ escala o `Deployment` pela API do Kubernetes.
               ┌───────────────── Base de Conhecimento (config.yaml, Q-table, histórico) ─────────────────┐
               │                                                                                           │
  Prometheus ─►│ Monitor ──chMA──► Analisador ──chAP──► Planejador ──chPE──► Executor ──► API Kubernetes │
- metrics-API  │ coleta,           estado, recompensa,   alvo 1–5, redução    allowlist, UpdateScale,      │
+ metrics-API  │ coleta,           estado, recompensa,   alvo 1–8, redução    allowlist, UpdateScale,      │
               │ normaliza,        Q-Learning decide     1 por vez, cooldown,  prontidão, plano B          │
               │ filtra            Δ ∈ {−1, 0, +1, +2}   pendência                                         │
               └───────────────────────────────────────────────────────────────────────────────────────────┘
@@ -88,10 +88,12 @@ selfscale-rl/
 │   ├── integracao/                  contra o cluster kind (build tag integration)
 │   └── fakes/                       dublês das portas, escritos à mão
 ├── cmd/                             executáveis: selfscale · probe · simulate · explain
-├── scripts/selfscale.sh             acompanhar o laço ao vivo, gerar carga e injetar falhas
 ├── tools/painel/                    painel web com latência, réplicas e decisões a cada ciclo
 ├── infra/terraform/                 cluster kind + plataforma (boutique, monitoring, probe, hpa)
-├── experiments/                     Locust (cenários C0–C5) e scripts (piloto, matriz)
+├── experiments/                     como rodar: laço ao vivo, carga, falhas e experimentos
+│   ├── selfscale.sh                 acompanhar o laço ao vivo, gerar carga e injetar falhas
+│   ├── locust/                      cenários C0–C5, carga curta, contínua e aleatória
+│   └── scripts/                     piloto e matriz de experimentos
 └── analysis/                        métricas, tabela, gráficos, Mann-Whitney
 ```
 
@@ -167,7 +169,8 @@ make deploy                     # imagem do probe + loja + metrics-server + Prom
 make run MODE=observe           # um registro a cada 15 s em data/history_*.csv
 make load SCENARIO=C1           # em outro terminal: carga com o Locust
 
-# 3. Piloto e calibração (réplicas fixas 1..5 × cargas crescentes)
+# 3 e 4 são opcionais: data/ já traz pilot.csv, sim_model.json e qtable.json
+# 3. Piloto e calibração (réplicas fixas 1..8 × cargas crescentes)
 make pilot                      # gera data/pilot.csv
 make calibrate                  # ajusta o modelo do simulador (data/sim_model.json)
 
@@ -176,7 +179,8 @@ make simulate                   # gera data/qtable.json e data/sim_learning.csv
 make run MODE=finetune SCENARIO=C2   # e aplicar C2–C4 com make load
 
 # 5. Experimentos e análise
-make matrix                     # E1–E4 × C0–C4 × 5 repetições
+make matrix                     # E1–E4 × C0–C4 × 5 repetições (horas; laço ao vivo parado)
+STRATEGIES="E3 E4" SCENARIOS="C1 C2" REPS=2 experiments/scripts/run_matrix.sh   # só uma parte
 make report                     # tabela (data/report.csv) + Mann-Whitney E3 × E4
 python3 -m analysis.plots timeseries data/history_E4_C0_1.csv --out data/ts.png
 
@@ -195,7 +199,9 @@ O gerenciador se recusa a atuar se houver HPA no `frontend` (`make hpa-off`).
 
 ## Acompanhar o laço ao vivo
 
-`scripts/selfscale.sh` roda **um único laço MAPE-K** em segundo plano
+> Resumo de uso, passo a passo: [`experiments/README.md`](experiments/README.md).
+
+`experiments/selfscale.sh` roda **um único laço MAPE-K** em segundo plano
 (`bin/explain`, as mesmas etapas do `bin/selfscale`) e explica, a cada ciclo,
 o que cada etapa recebeu, decidiu e executou. Cada etapa pode ser vista em um
 terminal; todos mostram o mesmo laço, e os números de ciclo coincidem. O laço
@@ -207,21 +213,22 @@ terminal; todos mostram o mesmo laço, e os números de ciclo coincidem. O laço
 | `zero`                  | zerada, sem conhecimento prévio               | sim: ε-greedy a cada ciclo; salva em `data/qtable_zero.json` |
 
 ```bash
-scripts/selfscale.sh monitor        # terminal 1: [M] o que foi medido e se o dado é válido
-scripts/selfscale.sh analisador     # terminal 2: [A] estado, recompensa, Q-values e decisão
-scripts/selfscale.sh planejador     # terminal 3: [P] plano seguro ou motivo do bloqueio
-scripts/selfscale.sh executor       # terminal 4: [E] o que foi aplicado no cluster
-scripts/selfscale.sh conhecimento   # terminal 5: [K] metas, Q-table e registros de cada ciclo
-scripts/selfscale.sh tudo           # ou todas as etapas juntas em um só terminal
-scripts/selfscale.sh tudo zero      # o mesmo, com o modelo não treinado (aprende durante o laço)
+experiments/selfscale.sh monitor        # terminal 1: [M] o que foi medido e se o dado é válido
+experiments/selfscale.sh analisador     # terminal 2: [A] estado, recompensa, Q-values e decisão
+experiments/selfscale.sh planejador     # terminal 3: [P] plano seguro ou motivo do bloqueio
+experiments/selfscale.sh executor       # terminal 4: [E] o que foi aplicado no cluster
+experiments/selfscale.sh conhecimento   # terminal 5: [K] metas, Q-table e registros de cada ciclo
+experiments/selfscale.sh tudo           # ou todas as etapas juntas em um só terminal
+experiments/selfscale.sh tudo zero      # o mesmo, com o modelo não treinado (aprende durante o laço)
 
-scripts/selfscale.sh carga          # carga aleatória de 30 min para provocar a adaptação
-scripts/selfscale.sh carga-curta    # ou uma carga curta (~2 min, 10 → 30 usuários)
-scripts/selfscale.sh grafico        # painel em http://localhost:8090 (opcional)
-scripts/selfscale.sh falha-sensor   # derruba o Prometheus: o Monitor marca dado inválido
-scripts/selfscale.sh volta-sensor   # religa o Prometheus
+experiments/selfscale.sh carga          # carga aleatória de 30 min para provocar a adaptação
+experiments/selfscale.sh carga-curta    # ou uma carga curta (~2 min, 10 → 30 usuários)
+experiments/selfscale.sh carga-continua # ou carga sem fim em fases (10 → 500 usuários), Ctrl+C para
+experiments/selfscale.sh grafico        # painel em http://localhost:8090 (opcional)
+experiments/selfscale.sh falha-sensor   # derruba o Prometheus: o Monitor marca dado inválido
+experiments/selfscale.sh volta-sensor   # religa o Prometheus
 
-scripts/selfscale.sh parar          # para o laço e volta o frontend para 1 réplica
+experiments/selfscale.sh parar          # para o laço e volta o frontend para 1 réplica
 ```
 
 O primeiro comando de etapa inicia o laço com o modelo escolhido; os demais só
@@ -241,8 +248,8 @@ do pré-treino.
 
 Os logs ficam em `data/laco/` e o histórico em `data/history_laco.csv`. Os
 mesmos comandos existem no Makefile (`make laco ETAPA=tudo MODELO=zero`,
-`make carga-aleatoria MINUTOS=30 SEMENTE=123`, `make carga-curta`, `make painel`,
-`make laco-parar`), e `scripts/selfscale.sh` sem argumento lista todos.
+`make carga-aleatoria MINUTOS=30 SEMENTE=123`, `make carga-curta`, `make carga-continua`, `make painel`,
+`make laco-parar`), e `experiments/selfscale.sh` sem argumento lista todos.
 
 ## Qualidade
 
@@ -264,7 +271,7 @@ Metas, políticas, pesos da recompensa e hiperparâmetros ficam em
 
 ### Calibração (piloto)
 
-O piloto (`make pilot`) mede o p95 com 1 a 5 réplicas fixas do frontend
+O piloto (`make pilot`) mede o p95 com 1 a 8 réplicas fixas do frontend
 (limite de 200m de CPU cada) sob 5 a 80 usuários constantes. Os históricos ficam em `data/pilot/`; o
 `data/pilot.csv` usado na calibração guarda só os pontos sem o frontend no
 limite de CPU:
@@ -282,4 +289,18 @@ o ruído do p95 em janelas de 15 s (cerca de 25% por ciclo), e no ajuste fino o
 agente passou a oscilar entre 4 e 5 réplicas. No pico as dependências ficam
 abaixo de 35% da CPU, então o gargalo é o frontend. Cada ponto do piloto é uma
 única execução de 150 s, daí irregularidades como 5 réplicas a 30 usuários. O
-simulador usa os valores equivalentes em vazão (`simulate train --base 7 --peak 20`).
+simulador usa os valores equivalentes em vazão.
+
+Para levar o máximo a 8 réplicas, a capacidade foi medida à parte com 5 a 10
+réplicas fixas (60 e 100 usuários, 9 janelas de 15 s cada, mediana do p95). Os
+pontos estão em `data/pilot_capacidade.csv` e entram na calibração junto com o
+piloto (`data/pilot_ampliado.csv`):
+
+| Usuários | ≈ req/s | 5 réplicas | 6 réplicas | 8 réplicas | 10 réplicas |
+| --------: | -------: | ----------: | ----------: | ----------: | -----------: |
+|        60 |       40 |      390 ms |      290 ms |      153 ms |           — |
+|       100 |       68 |      372 ms |      284 ms |      253 ms |       215 ms |
+
+60 usuários cabem em 8 réplicas; 100 não cabem nem em 10, porque o ganho por
+réplica cai (os demais serviços têm 1 réplica). Por isso o máximo é 8 e o
+pré-treino usa pico de ~60 usuários (`simulate train --base 7 --peak 40`).

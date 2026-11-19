@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shna/selfscale-rl/manager/learning/qlearning"
 	"github.com/shna/selfscale-rl/manager/mapek/knowledge"
 )
 
@@ -21,12 +20,12 @@ import (
 type JSONQTable struct{ Path string }
 
 // Load lê a Q-table. Se o arquivo não existir, o erro satisfaz errors.Is(err, os.ErrNotExist).
-func (s JSONQTable) Load() (qlearning.Table, error) {
+func (s JSONQTable) Load() (knowledge.QTable, error) {
 	raw, err := os.ReadFile(s.Path)
 	if err != nil {
 		return nil, fmt.Errorf("lendo q-table: %w", err)
 	}
-	var t qlearning.Table
+	var t knowledge.QTable
 	if err := json.Unmarshal(raw, &t); err != nil {
 		return nil, fmt.Errorf("interpretando q-table %s: %w", s.Path, err)
 	}
@@ -35,7 +34,7 @@ func (s JSONQTable) Load() (qlearning.Table, error) {
 
 // Save grava a Q-table de forma atômica (arquivo temporário + rename), para
 // não corromper o arquivo se o processo cair no meio da escrita.
-func (s JSONQTable) Save(t qlearning.Table) error {
+func (s JSONQTable) Save(t knowledge.QTable) error {
 	raw, err := json.MarshalIndent(t, "", "  ")
 	if err != nil {
 		return fmt.Errorf("serializando q-table: %w", err)

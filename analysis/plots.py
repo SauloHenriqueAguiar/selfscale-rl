@@ -19,7 +19,7 @@ import pandas as pd  # noqa: E402
 from analysis.metrics import SLA_MS, load_history  # noqa: E402
 
 ACTIONS = [-1, 0, 1, 2]
-BANDS = ["LOW", "OK", "HIGH"]
+BANDS = ["LOW", "OK", "HIGH", "IDLE"]
 
 
 def timeseries(history, out):
@@ -86,7 +86,7 @@ def greedy_policy(table, min_replicas=1):
 
 
 def policy_map(table, out):
-    """Mapa da política gulosa (15 estados → ação)."""
+    """Mapa da política gulosa (20 estados → ação)."""
     policy = greedy_policy(table)
     fig, ax = plt.subplots(figsize=(6, 3))
     ax.imshow(policy, cmap="coolwarm", vmin=-2, vmax=2)

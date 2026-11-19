@@ -1,9 +1,6 @@
 // Package analyzer é a etapa A do MAPE-K ("o que fazer?"): classifica o
 // sintoma, calcula a recompensa da ação executada no ciclo anterior, aprende
 // e decide Δ ∈ {−1, 0, +1, +2} com Q-Learning.
-//
-// Arquivos: state.go e reward.go (regras puras), ports.go (agente de que
-// precisa) e analyzer.go (orquestração). O agente fica em manager/learning/qlearning.
 package analyzer
 
 import (
@@ -30,9 +27,10 @@ type Analyzer struct {
 	settings knowledge.Settings
 	opts     Options
 
-	prev    knowledge.State
-	hasPrev bool
-	cycles  int
+	prev        knowledge.State
+	hasPrev     bool
+	prevPending bool // o estado anterior estava em transição (pods ainda não prontos)
+	cycles      int
 }
 
 // New cria o Analisador.
@@ -58,7 +56,7 @@ func (a *Analyzer) Handle(sym knowledge.Symptom) knowledge.ChangeRequest {
 	if a.hasPrev {
 		req.Reward = a.learnFromLastAction(sym, req.State)
 	}
-	a.prev, a.hasPrev = req.State, true
+	a.prev, a.hasPrev, a.prevPending = req.State, true, sym.ReadyReplicas < sym.Replicas
 
 	req.Reason = knowledge.ReasonObserve
 	if a.opts.Act {
@@ -70,10 +68,13 @@ func (a *Analyzer) Handle(sym knowledge.Symptom) knowledge.ChangeRequest {
 
 // learnFromLastAction avalia a ação de fato executada (não a proposta: o
 // Planejador pode tê-la bloqueado) e atualiza a Q-table se o modo permitir.
+// Não aprende a partir de um estado em transição: ali o Planejador força
+// "manter" e as réplicas desejadas ainda não atendem; a melhora que vem em
+// seguida seria creditada a "manter com latência alta".
 func (a *Analyzer) learnFromLastAction(sym knowledge.Symptom, next knowledge.State) float64 {
 	executed, previous := a.k.LastExecuted()
 	r := Reward(sym.P95Ms, next.Replicas, executed, previous, a.settings.Goals, a.settings.Reward)
-	if a.opts.Learn {
+	if a.opts.Learn && !a.prevPending {
 		a.learner.Learn(a.prev, executed, r, next)
 	}
 	return r

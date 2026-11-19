@@ -82,11 +82,13 @@ func (s *statusRecorder) class() string {
 	return strconv.Itoa(s.status/100) + "xx"
 }
 
-// NewTransport cria um transporte com keep-alive e muitas conexões ociosas,
-// para que o proxy não vire o gargalo da medição.
-func NewTransport(maxIdlePerHost int) *http.Transport {
+// NewTransport cria o transporte até o frontend sem keep-alive: cada requisição
+// abre uma conexão nova. O Service do Kubernetes escolhe o pod por conexão;
+// com conexões reaproveitadas, as abertas antes de uma escala ficavam presas
+// aos pods antigos e os pods novos não recebiam tráfego (medido: 1 pod com
+// 197m de CPU e 7 com 1m). Dentro do cluster, abrir a conexão custa < 1 ms.
+func NewTransport() *http.Transport {
 	t := http.DefaultTransport.(*http.Transport).Clone()
-	t.MaxIdleConns = maxIdlePerHost
-	t.MaxIdleConnsPerHost = maxIdlePerHost
+	t.DisableKeepAlives = true
 	return t
 }

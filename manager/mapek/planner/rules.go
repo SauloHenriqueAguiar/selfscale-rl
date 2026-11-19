@@ -35,16 +35,21 @@ func Plan(req knowledge.ChangeRequest, cur ClusterView, pol knowledge.Policy) kn
 		return empty
 	}
 	return knowledge.AdaptationPlan{
-		T:      req.T,
-		Target: target,
-		Steps: []knowledge.Step{
-			{Kind: knowledge.StepScale, Replicas: target},
-			{Kind: knowledge.StepAwaitReady, Replicas: target},
-			{Kind: knowledge.StepConfirm, Replicas: target},
-		},
+		T:        req.T,
+		Target:   target,
+		Steps:    Steps(target),
 		Timeout:  pol.ReadinessTimeout,
 		Fallback: cur.Replicas,
 		Request:  req,
+	}
+}
+
+// Steps são os passos para levar o Deployment a target réplicas prontas.
+func Steps(target int) []knowledge.Step {
+	return []knowledge.Step{
+		{Kind: knowledge.StepScale, Replicas: target},
+		{Kind: knowledge.StepAwaitReady, Replicas: target},
+		{Kind: knowledge.StepConfirm, Replicas: target},
 	}
 }
 

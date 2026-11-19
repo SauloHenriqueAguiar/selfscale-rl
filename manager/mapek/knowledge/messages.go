@@ -8,8 +8,7 @@ import "time"
 // Delta é a variação de réplicas decidida pelo Analisador.
 type Delta int
 
-// Actions devolve o conjunto fixo de ações do agente, na ordem das colunas da Q-table.
-// É uma função (e não uma variável) para não expor estado global mutável.
+// Actions devolve as ações do agente, na ordem das colunas da Q-table.
 func Actions() []Delta { return []Delta{-1, 0, +1, +2} }
 
 // Traffic é a leitura bruta do tráfego, nas unidades da fonte (Prometheus).

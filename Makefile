@@ -21,7 +21,7 @@ BIN         := bin
 .PHONY: venv help build fmt lint test cover test-integration pytest tf-check check \
         cluster-up probe-image deploy hpa-on hpa-off cluster-down \
         run simulate calibrate load pilot matrix report \
-        laco painel carga-aleatoria carga-curta laco-parar
+        laco painel carga-aleatoria carga-curta carga-continua laco-parar
 
 help: ## Lista os alvos
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -98,8 +98,10 @@ cluster-down: ## Destrói tudo (platform primeiro)
 run: build ## Gerenciador: make run MODE=observe|finetune|eval|online SCENARIO=Cx
 	$(BIN)/selfscale --config $(CONFIG) --mode $(MODE) --scenario $(SCENARIO)
 
-calibrate: build ## Calibra o simulador com data/pilot.csv
-	$(BIN)/simulate calibrate --pilot data/pilot.csv --model data/sim_model.json
+calibrate: build ## Calibra o simulador com data/pilot.csv (+ data/pilot_capacidade.csv, se existir)
+	cp data/pilot.csv data/pilot_ampliado.csv
+	if [ -f data/pilot_capacidade.csv ]; then tail -n +2 data/pilot_capacidade.csv >> data/pilot_ampliado.csv; fi
+	$(BIN)/simulate calibrate --pilot data/pilot_ampliado.csv --model data/sim_model.json
 
 simulate: build ## Pré-treino no simulador (gera data/qtable.json)
 	$(BIN)/simulate train --config $(CONFIG) --model data/sim_model.json
@@ -110,7 +112,7 @@ load: ## Carga Locust: make load SCENARIO=C0 BASE_USERS=10 PEAK_USERS=30
 	  locust -f experiments/locust/locustfile.py --headless --host http://localhost:8080 \
 	  --csv data/locust_$(SCENARIO) --only-summary
 
-pilot: build ## Piloto: réplicas fixas 1..5 × cargas crescentes → data/pilot.csv
+pilot: build ## Piloto: réplicas fixas 1..8 × cargas crescentes → data/pilot.csv
 	experiments/scripts/pilot.sh
 
 matrix: build ## Matriz de experimentos E1–E4 × C0–C4 × repetições
@@ -125,19 +127,22 @@ ETAPA  ?= tudo
 MODELO ?=
 
 laco: ## Laço MAPE-K comentado: make laco ETAPA=tudo|monitor|... [MODELO=pretreinado|zero]
-	scripts/selfscale.sh $(ETAPA) $(MODELO)
+	experiments/selfscale.sh $(ETAPA) $(MODELO)
 
 painel: ## Painel no navegador (http://localhost:8090) com o laço ao vivo
-	scripts/selfscale.sh grafico
+	experiments/selfscale.sh grafico
 
 MINUTOS ?= 30
 SEMENTE ?=
 
 carga-aleatoria: ## Carga aleatória longa: make carga-aleatoria MINUTOS=30 [SEMENTE=n]
-	scripts/selfscale.sh carga $(MINUTOS) $(SEMENTE)
+	experiments/selfscale.sh carga $(MINUTOS) $(SEMENTE)
 
 carga-curta: ## Carga curta (~2 min 15 s, 10 → 30 usuários) para ver o laço adaptar
-	scripts/selfscale.sh carga-curta
+	experiments/selfscale.sh carga-curta
+
+carga-continua: ## Carga sem fim em fases crescentes (10 a 100 usuários, de 10 em 10; USUARIOS="10,30,60" FASE_S=60)
+	experiments/selfscale.sh carga-continua
 
 laco-parar: ## Para o laço comentado e volta o frontend para 1 réplica
-	scripts/selfscale.sh parar
+	experiments/selfscale.sh parar

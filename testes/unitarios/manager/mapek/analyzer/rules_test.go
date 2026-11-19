@@ -30,9 +30,21 @@ func TestBandOf_Boundaries(t *testing.T) {
 }
 
 func TestDiscretize_ClampsReplicas(t *testing.T) {
-	got := analyzer.Discretize(knowledge.Symptom{P95Ms: 250, Replicas: 7}, testGoals, testPolicy)
+	got := analyzer.Discretize(knowledge.Symptom{P95Ms: 250, RPS: 10, Replicas: 7}, testGoals, testPolicy)
 	if got != (knowledge.State{Band: knowledge.BandHigh, Replicas: 5}) {
 		t.Errorf("Discretize = %v", got)
+	}
+}
+
+// Sem tráfego o estado é IDLE, separado de LOW com carga.
+func TestDiscretize_NoTrafficIsIdle(t *testing.T) {
+	idle := analyzer.Discretize(knowledge.Symptom{P95Ms: 0, RPS: 0, Replicas: 3}, testGoals, testPolicy)
+	if idle != (knowledge.State{Band: knowledge.BandIdle, Replicas: 3}) {
+		t.Errorf("sem tráfego = %v, quer IDLE/3", idle)
+	}
+	low := analyzer.Discretize(knowledge.Symptom{P95Ms: 50, RPS: 7, Replicas: 3}, testGoals, testPolicy)
+	if low != (knowledge.State{Band: knowledge.BandLow, Replicas: 3}) {
+		t.Errorf("com tráfego = %v, quer LOW/3", low)
 	}
 }
 
@@ -68,7 +80,9 @@ func TestReward(t *testing.T) {
 		want               float64
 	}{
 		{"SLA ok, 3 réplicas, sem oscilar", 150, 3, +1, +1, 0.7},
-		{"violação com 1 réplica", 300, 1, 0, 0, -2.1},
+		{"violação com 1 réplica: penalidade cresce com o p95", 300, 1, 0, 0, -2*1.5 - 0.1},
+		{"violação por pouco custa pouco mais que a base", 210, 1, 0, 0, -2*1.05 - 0.1},
+		{"violação limitada a 3× o SLA", 2000, 1, 0, 0, -2*3 - 0.1},
 		{"oscilação", 150, 2, -1, +1, 1 - 0.2 - 0.5},
 		{"manter após aumento não oscila", 150, 2, 0, +1, 0.8},
 	}

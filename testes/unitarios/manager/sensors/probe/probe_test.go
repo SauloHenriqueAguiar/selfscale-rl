@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -26,7 +27,7 @@ func newProxy(t *testing.T, backend http.Handler) (*httptest.Server, *prometheus
 func newProxyTo(t *testing.T, target *url.URL) (*httptest.Server, *prometheus.Registry) {
 	t.Helper()
 	reg := prometheus.NewRegistry()
-	proxy := httptest.NewServer(probe.NewHandler(target, probe.NewTransport(10), probe.NewMetrics(reg)))
+	proxy := httptest.NewServer(probe.NewHandler(target, probe.NewTransport(), probe.NewMetrics(reg)))
 	t.Cleanup(proxy.Close)
 	return proxy, reg
 }
@@ -122,5 +123,29 @@ func TestHandler_UnreachableBackendCountsAsError(t *testing.T) {
 
 	if resp.StatusCode != http.StatusBadGateway || requests(t, reg, "error") != 1 {
 		t.Errorf("status=%d error=%v", resp.StatusCode, requests(t, reg, "error"))
+	}
+}
+
+// Sem keep-alive, cada requisição chega ao frontend por uma conexão nova, e o
+// Service do Kubernetes pode mandá-la a um pod diferente (inclusive os novos).
+func TestProxy_OpensNewConnectionPerRequest(t *testing.T) {
+	var mu sync.Mutex
+	remotes := map[string]bool{}
+	proxy, _ := newProxy(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		remotes[r.RemoteAddr] = true
+		mu.Unlock()
+	}))
+	const n = 3
+	for range n {
+		resp, err := http.Get(proxy.URL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}
+	if len(remotes) != n {
+		t.Errorf("%d conexões distintas até o frontend, quer %d (uma por requisição)", len(remotes), n)
 	}
 }

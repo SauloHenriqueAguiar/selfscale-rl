@@ -53,7 +53,7 @@ func (a *Agent) applyPrior() {
 		case s.Band == knowledge.BandHigh:
 			a.q[i][a.column(+1)] = priorScaleUp
 			a.q[i][a.column(+2)] = priorScaleUp
-		case s.Band == knowledge.BandLow && s.Replicas > a.policy.MinReplicas:
+		case (s.Band == knowledge.BandLow || s.Band == knowledge.BandIdle) && s.Replicas > a.policy.MinReplicas:
 			a.q[i][a.column(-1)] = priorScaleDown
 		}
 	}

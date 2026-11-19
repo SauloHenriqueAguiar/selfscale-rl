@@ -6,13 +6,13 @@ Serve a pagina (index.html) e, em /dados, o historico do laco MAPE-K
 Uso (na raiz do projeto):
     python3 tools/painel/servidor.py [--arquivo data/history_laco.csv] [--porta 8090]
 
-Normalmente iniciado por: scripts/selfscale.sh grafico
+Normalmente iniciado por: experiments/selfscale.sh grafico
 """
 import argparse
 import csv
 import json
 import os
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PASTA = os.path.dirname(os.path.abspath(__file__))
 
@@ -26,7 +26,7 @@ def ler_historico(caminho):
 
 
 def ler_eventos(caminho):
-    """Eventos marcados pelo scripts/selfscale.sh (carga, pico, falha): linhas 'hora,texto'."""
+    """Eventos marcados pelo experiments/selfscale.sh (carga, pico, falha): linhas 'hora,texto'."""
     try:
         with open(caminho, encoding="utf-8") as f:
             return [dict(zip(("t", "texto"), l.rstrip("\n").split(",", 1))) for l in f if "," in l]
@@ -35,7 +35,7 @@ def ler_eventos(caminho):
 
 
 def ler_modelo(caminho):
-    """Modelo do laco em execucao (pretreinado ou zero), gravado pelo scripts/selfscale.sh."""
+    """Modelo do laco em execucao (pretreinado ou zero), gravado pelo experiments/selfscale.sh."""
     try:
         with open(caminho, encoding="utf-8") as f:
             return f.read().strip() or None
@@ -53,7 +53,7 @@ def laco_rodando(pidfile):
 
 
 def criar_handler(arquivo, eventos, pidfile, modelo=None):
-    class Handler(SimpleHTTPRequestHandler):
+    class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             if self.path.startswith("/dados"):
                 # Com o laco parado o grafico fica zerado: so mostra a execucao em andamento.

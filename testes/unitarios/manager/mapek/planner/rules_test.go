@@ -68,3 +68,16 @@ func TestPlan_NonEmptyHasStepsAndTimeout(t *testing.T) {
 		t.Errorf("Timeout = %v", p.Timeout)
 	}
 }
+
+func TestSteps(t *testing.T) {
+	want := []knowledge.StepKind{knowledge.StepScale, knowledge.StepAwaitReady, knowledge.StepConfirm}
+	steps := planner.Steps(3)
+	if len(steps) != len(want) {
+		t.Fatalf("passos = %v", steps)
+	}
+	for i, st := range steps {
+		if st.Kind != want[i] || st.Replicas != 3 {
+			t.Errorf("passo %d = %+v", i, st)
+		}
+	}
+}

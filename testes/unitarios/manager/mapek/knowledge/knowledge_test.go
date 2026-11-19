@@ -15,7 +15,10 @@ func TestBase_CyclesSinceScaleUp(t *testing.T) {
 		t.Error("no início, reduções não devem ser bloqueadas")
 	}
 	b.RecordDispatch(+1)
-	if b.TickCycle() != 1 || b.TickCycle() != 2 {
+	if b.CyclesSinceScaleUp() != 0 {
+		t.Error("aumento deve zerar a contagem")
+	}
+	if b.TickCycle() != 1 || b.TickCycle() != 2 || b.CyclesSinceScaleUp() != 2 {
 		t.Error("contagem após aumento deve recomeçar em 1")
 	}
 	b.RecordDispatch(-1)
@@ -63,7 +66,7 @@ func TestCheckpointer_SavesTableAtEndOfEpisode(t *testing.T) {
 	agent := qlearning.NewAgent(fakes.Settings().Policy, knowledge.LearningParams{PriorInit: true}, qlearning.Greedy{})
 	store := &fakes.Store{}
 	knowledge.Checkpointer{Agent: agent, Store: store}.EndEpisode()
-	if len(store.Saved) != 15 {
+	if len(store.Saved) != knowledge.NumStates(fakes.Settings().Policy) {
 		t.Errorf("Q-table salva com %d estados", len(store.Saved))
 	}
 	store.Err = fakes.ErrFake

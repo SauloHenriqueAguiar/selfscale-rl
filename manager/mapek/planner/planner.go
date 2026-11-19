@@ -1,8 +1,6 @@
 // Package planner é a etapa P do MAPE-K ("como fazer com segurança?"):
-// transforma a Solicitação de Mudança em Plano de Adaptação.
-//
-// As regras (limites 1–5, redução de 1 em 1, cooldown, pendência) são a
-// função pura Plan, em rules.go; planner.go só monta a visão do cluster.
+// transforma a Solicitação de Mudança em Plano de Adaptação seguindo regras
+// puras (limites, redução de 1 em 1, cooldown, pendência).
 package planner
 
 import (

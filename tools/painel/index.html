@@ -143,7 +143,7 @@ svg text { fill: var(--text-secondary); font-size: 11px; font-variant-numeric: t
 <div class="tip" id="tip"></div>
 
 <script>
-const SLA = 200, MAX_REP = 5, PERIOD_MS = 15000;
+const SLA = 200, MAX_REP = 8, PERIOD_MS = 15000;
 const KINDS = {
   ok:        { label: "ok",        color: "var(--good)",     desc: "dentro da meta" },
   risk:      { label: "risk",      color: "var(--warning)",  desc: "perto do SLA" },
@@ -154,7 +154,7 @@ const KINDS = {
 const BLOCKS = {
   cooldown: "cooldown (so reduz 4 ciclos apos aumentar)",
   pending: "pendencia (replicas ainda subindo)",
-  bounds: "limite de 1 a 5 replicas",
+  bounds: "limite de 1 a 8 replicas",
   "invalid-data": "dado invalido",
 };
 let rows = [], events = [], running = false, hover = null, lastKey = "";
@@ -209,7 +209,7 @@ function timeTicks(x) {
 const fmtElapsed = s => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
 
 /* ---------------------------------------------------------------- eventos */
-// Trechos marcados pelo sistema.sh: carga (e pico) e sensor desligado.
+// Trechos marcados pelo experiments/selfscale.sh: carga, pico e sensor desligado.
 function intervals() {
   const out = [], open = {};
   const now = new Date();
@@ -316,7 +316,7 @@ function lastLabel(x, y, get, fmt) {
 
 function renderCharts() {
   if (!rows.length) {
-    const msg = running ? "Aguardando o primeiro ciclo do laco (ate 15 s)..." : "Laco parado. Inicie com: scripts/selfscale.sh tudo";
+    const msg = running ? "Aguardando o primeiro ciclo do laco (ate 15 s)..." : "Laco parado. Inicie com: experiments/selfscale.sh tudo";
     $("charts").querySelectorAll("svg").forEach(s => {
       const w = s.clientWidth || 600;
       s.setAttribute("viewBox", `0 0 ${w} 60`); s.setAttribute("height", 60);
@@ -352,9 +352,8 @@ function renderCharts() {
   const yMaxR = Math.ceil(maxR * 1.15 / 5) * 5;
   chart($("cRps"), {
     h: 150, yMax: yMaxR, value: r => r.rps, yTicks: [0, 1, 2, 3].map(i => Math.round(yMaxR / 3 * i)),
-    body: (x, y, plotB) => {
-      const line = linePath(x, y, r => r.rps);
-      return `<path d="${line}" fill="none" stroke="var(--series-1)" stroke-width="2" stroke-linejoin="round"/>` +
+    body: (x, y) => {
+      return `<path d="${linePath(x, y, r => r.rps)}" fill="none" stroke="var(--series-1)" stroke-width="2" stroke-linejoin="round"/>` +
         lastLabel(x, y, r => r.rps, v => v.toFixed(1) + " req/s");
     },
   });
@@ -419,7 +418,7 @@ function renderLog() {
   const el = $("log");
   if (!rows.length) {
     el.innerHTML = running ? `<li class="empty">Aguardando o primeiro ciclo do laco.</li>`
-      : `<li class="empty">Laco parado.<br>Inicie com: scripts/selfscale.sh tudo<br>(ou monitor, analisador...)</li>`;
+      : `<li class="empty">Laco parado.<br>Inicie com: experiments/selfscale.sh tudo<br>(ou monitor, analisador...)</li>`;
     return;
   }
   el.innerHTML = rows.slice().reverse().map(r => {

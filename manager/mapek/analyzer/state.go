@@ -19,9 +19,14 @@ func BandOf(p95Ms float64, g knowledge.Goals) knowledge.LatencyBand {
 
 // Discretize converte um sintoma em estado, limitando réplicas ao intervalo da política
 // (durante uma transição o Deployment pode reportar valores fora dele).
+// Sem tráfego o estado é IDLE, qualquer que seja o p95.
 func Discretize(s knowledge.Symptom, g knowledge.Goals, p knowledge.Policy) knowledge.State {
 	replicas := min(max(s.Replicas, p.MinReplicas), p.MaxReplicas)
-	return knowledge.State{Band: BandOf(s.P95Ms, g), Replicas: replicas}
+	band := BandOf(s.P95Ms, g)
+	if s.RPS == 0 {
+		band = knowledge.BandIdle
+	}
+	return knowledge.State{Band: band, Replicas: replicas}
 }
 
 // Classify devolve a categoria do sintoma. A ordem dos casos é a prioridade.

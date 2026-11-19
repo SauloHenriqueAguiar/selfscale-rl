@@ -89,7 +89,7 @@ def test_mann_whitney_compare():
 
 
 def test_greedy_policy_respects_mask_and_tie_break():
-    table = [[0.0] * 4 for _ in range(15)]
+    table = [[0.0] * 4 for _ in range(20)]
     table[10] = [0, 0, 0, 0]  # HIGH/1: empate → manter (0)
     table[14] = [0, 0, 9, 9]  # HIGH/5: +1/+2 inválidos → melhor válida
     table[4] = [0.3, 0, 0, 0]  # LOW/5 → reduzir
@@ -97,13 +97,14 @@ def test_greedy_policy_respects_mask_and_tie_break():
     assert policy[2][0] == 0
     assert policy[2][4] in (-1, 0)
     assert policy[0][4] == -1
+    assert len(policy) == 4  # LOW, OK, HIGH, IDLE
 
 
 def test_plots_write_files(tmp_path):
     df = history([100, 300, 150], [1, 2, 2])
     plots.timeseries(df, tmp_path / "ts.png")
     plots.learning_curve(pd.DataFrame({"episode": [1, 2], "mean_reward": [0.1, 0.2], "epsilon": [1, 0.9]}), tmp_path / "l.png")
-    plots.policy_map([[0.0] * 4 for _ in range(15)], tmp_path / "p.png")
+    plots.policy_map([[0.0] * 4 for _ in range(20)], tmp_path / "p.png")
     runs = pd.DataFrame({"strategy": ["E3", "E4"], "scenario": ["C1", "C1"], "m": [1.0, 2.0]})
     plots.boxplot(runs, "m", tmp_path / "b.png")
     assert all((tmp_path / f).exists() for f in ["ts.png", "l.png", "p.png", "b.png"])

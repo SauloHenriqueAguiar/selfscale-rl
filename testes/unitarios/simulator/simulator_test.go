@@ -60,6 +60,26 @@ func TestScenarios_Shapes(t *testing.T) {
 	}
 }
 
+func TestScenario_IdleTail(t *testing.T) {
+	s, _ := simulator.ScenarioByName("C3")
+	tail := s.WithIdleTail(8)
+	load := tail.Load(10, 100)
+	if tail.Cycles != s.Cycles+8 || load(s.Cycles-1) != s.Load(10, 100)(s.Cycles-1) {
+		t.Errorf("cauda alterou o perfil: ciclos=%d", tail.Cycles)
+	}
+	if load(s.Cycles) != 0 || load(tail.Cycles-1) != 0 {
+		t.Error("a cauda deve ter carga zero")
+	}
+	if s.WithIdleTail(0).Cycles != s.Cycles {
+		t.Error("cauda 0 não muda o cenário")
+	}
+	for _, sc := range simulator.TrainingScenarios(8) {
+		if sc.Load(10, 100)(sc.Cycles-1) != 0 {
+			t.Errorf("%s sem cauda sem carga", sc.Name)
+		}
+	}
+}
+
 func TestCluster_ScaleUpWaitsReadinessScaleDownIsImmediate(t *testing.T) {
 	m := simulator.DefaultModel()
 	m.Sigma, m.MinReadyS, m.MaxReadyS = 0, 20, 20 // 2 ciclos
@@ -147,12 +167,14 @@ func TestCalibrate_Errors(t *testing.T) {
 // Teste determinístico (semente fixa) sem conhecimento prévio: o agente deve
 // aprender sozinho a aumentar com latência alta e reduzir com latência baixa.
 func TestTrain_LearnsSensiblePolicy(t *testing.T) {
+	s := settings
+	s.Reward.CostPerReplica = 0.2 // mesmo peso de configs/config.yaml
 	cfg := simulator.TrainConfig{
-		Settings: settings, Model: simulator.DefaultModel(), Scenarios: simulator.Scenarios(),
-		BaseRPS: 5, PeakRPS: 50, Period: period, MaxEpisodes: 400, Window: 20, Tolerance: 0.05,
+		Settings: s, Model: simulator.DefaultModel(), Scenarios: simulator.TrainingScenarios(8),
+		BaseRPS: 5, PeakRPS: 50, Period: period, MaxEpisodes: 1500,
 	}
-	sel := qlearning.NewEpsilonGreedy(1, 0.05, 0.99, 42)
-	agent := qlearning.NewAgent(settings.Policy, settings.Learning, sel)
+	sel := qlearning.NewEpsilonGreedy(1, 0.05, 0.995, 42)
+	agent := qlearning.NewAgent(s.Policy, s.Learning, sel)
 
 	stats := simulator.Train(cfg, agent, rand.New(rand.NewSource(42)))
 
@@ -168,6 +190,11 @@ func TestTrain_LearnsSensiblePolicy(t *testing.T) {
 	}
 	if d := agent.Best(knowledge.State{Band: knowledge.BandLow, Replicas: 5}); d >= 0 {
 		t.Errorf("LOW/5 → %d, quer reduzir", d)
+	}
+	for r := 2; r <= 5; r++ {
+		if d := agent.Best(knowledge.State{Band: knowledge.BandIdle, Replicas: r}); d != -1 {
+			t.Errorf("IDLE/%d → %d, quer reduzir sem carga", r, d)
+		}
 	}
 }
 
